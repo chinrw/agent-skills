@@ -1,0 +1,50 @@
+{
+  "_comment": "Real stall reproduced from .claude/babysit-prs/runs/a1d73fa7.../pr-358/state.json: integration root, CI green, zero unresolved threads, no +1, one current-head trigger from 2026-07-25 -- the old one-shot rule left this PR in WAITING_CODEX forever.",
+  "now": "2026-07-27T10:00:00Z",
+  "repo": "chinrw/stocks",
+  "pr": 358,
+  "prState": "OPEN",
+  "isDraft": false,
+  "prClass": "integration-root",
+  "policy": {
+    "externalReview": {
+      "enabled": true,
+      "botLogin": "chatgpt-codex-connector[bot]",
+      "triggerComment": "@codex review",
+      "passReaction": "+1",
+      "reactionTarget": "pr-body",
+      "rootMode": "fresh-pass-retry",
+      "strictStackedMode": "one-round",
+      "retry": {
+        "enabled": true,
+        "intervalSeconds": 1800,
+        "maxRoundsPerInvocation": 2,
+        "maxTotalRounds": null,
+        "minCollisionDelaySeconds": 60
+      }
+    }
+  },
+  "head": {
+    "oid": "c1140f25893d737f79d2d1077d3f94a34239b61f",
+    "committedDate": "2026-07-25T13:34:56Z"
+  },
+  "base": {"oid": "b9d06b4fa4b338273da854f59115687d581a1053"},
+  "expected": {
+    "headOid": "c1140f25893d737f79d2d1077d3f94a34239b61f",
+    "baseOid": "b9d06b4fa4b338273da854f59115687d581a1053"
+  },
+  "reactions": [],
+  "comments": [
+    {"id": 5078715731, "author": {"login": "chinrw"}, "body": "@codex review", "createdAt": "2026-07-25T13:46:10Z"}
+  ],
+  "botActivity": [
+    {"login": "chatgpt-codex-connector[bot]", "at": "2026-07-25T14:01:01Z"}
+  ],
+  "unresolvedCodexThreads": 0,
+  "dispositionCompletedAt": "2026-07-26T23:48:00Z",
+  "roundsThisInvocation": 0,
+  "persisted": {
+    "_comment": "legacy v2 marker: head/base/spec/key/state only, no external-review retry fields",
+    "codexState": "WAITING_CODEX"
+  }
+}

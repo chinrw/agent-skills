@@ -1,0 +1,18 @@
+{
+  "externalReview": {
+    "enabled": true,
+    "botLogin": "chatgpt-codex-connector[bot]",
+    "triggerComment": "@codex review",
+    "passReaction": "+1",
+    "reactionTarget": "pr-body",
+    "rootMode": "fresh-pass-retry",
+    "strictStackedMode": "one-round",
+    "retry": {
+      "enabled": true,
+      "intervalSeconds": 1800,
+      "maxRoundsPerInvocation": 2,
+      "maxTotalRounds": null,
+      "minCollisionDelaySeconds": 60
+    }
+  }
+}

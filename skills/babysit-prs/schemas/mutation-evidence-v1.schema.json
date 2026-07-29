@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "babysit-prs/mutation-evidence-v1",
+  "title": "Mutation evidence for a test-coverage finding (v1)",
+  "description": "Empirical result of a bounded mutation experiment run in a disposable exact-head worktree. A pure test-coverage claim (\"the test does not actually cover this behavior\") may not be judged blocking on reading alone when this experiment is safely runnable.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "findingId",
+    "attemptId",
+    "worktree",
+    "headOid",
+    "baseline",
+    "mutation",
+    "cleanup",
+    "conclusion"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "findingId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,32}$" },
+    "attemptId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{6,128}$" },
+    "pr": { "type": ["integer", "null"], "minimum": 1 },
+    "reviewKey": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "worktree": { "type": "string", "minLength": 1 },
+    "headOid": { "type": "string", "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$" },
+    "baseline": { "$ref": "#/definitions/run" },
+    "mutation": { "$ref": "#/definitions/mutationRun" },
+    "cleanup": {
+      "type": "object",
+      "required": ["clean", "headOid"],
+      "additionalProperties": false,
+      "properties": {
+        "clean": {
+          "type": "boolean",
+          "description": "git status --porcelain empty AND HEAD unchanged AND tree matches HEAD."
+        },
+        "headOid": { "type": "string", "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$" },
+        "porcelain": { "type": ["string", "null"], "maxLength": 8000 },
+        "treeMatchesHead": { "type": ["boolean", "null"] },
+        "residualRisk": { "type": ["string", "null"], "maxLength": 2000 }
+      }
+    },
+    "conclusion": {
+      "type": "string",
+      "enum": [
+        "test-does-not-detect-regression",
+        "test-detects-regression",
+        "inconclusive"
+      ],
+      "description": "test-does-not-detect-regression => the coverage gap is empirically CONFIRMED. test-detects-regression => the coverage finding is REBUTTED. inconclusive => the claim stays unconfirmed/needs-evidence; it must not be auto-promoted to blocking."
+    },
+    "inconclusiveReason": { "type": ["string", "null"], "maxLength": 2000 },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disposableWorktree": { "type": "boolean" },
+        "isMainCheckout": { "type": "boolean" },
+        "mutationScopePaths": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 1024 },
+          "maxItems": 200
+        }
+      }
+    }
+  },
+  "definitions": {
+    "run": {
+      "type": "object",
+      "required": ["command", "exitCode", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "command": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "exitCode": { "type": ["integer", "null"] },
+        "summary": { "type": "string", "maxLength": 2000 },
+        "outputSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "durationMs": { "type": ["integer", "null"], "minimum": 0 },
+        "timedOut": { "type": ["boolean", "null"] }
+      }
+    },
+    "mutationRun": {
+      "type": "object",
+      "required": ["description", "command", "exitCode", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "mode": {
+          "type": ["string", "null"],
+          "enum": ["restore-paths-from-ref", "apply-patch", null]
+        },
+        "command": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "exitCode": { "type": ["integer", "null"] },
+        "summary": { "type": "string", "maxLength": 2000 },
+        "outputSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "durationMs": { "type": ["integer", "null"], "minimum": 0 },
+        "timedOut": { "type": ["boolean", "null"] },
+        "applied": { "type": ["boolean", "null"] },
+        "changedPaths": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 1024 },
+          "maxItems": 200
+        }
+      }
+    }
+  }
+}

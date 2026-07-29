@@ -1,0 +1,140 @@
+{
+  "$comment": "Executable review-key test vectors. Every field is COMPLETE — abbreviated hashes must never appear in a fixture, because an abbreviation cannot prove a byte contract.",
+  "contract": {
+    "policyVersion": "babysit-prs-v2",
+    "encoding": "utf-8",
+    "fieldOrder": ["policyVersion", "canonicalRepo", "pr", "headOid", "baseOid", "specHash"],
+    "separator": "exactly one NUL (0x00) between adjacent fields",
+    "leadingNul": false,
+    "trailingNul": false,
+    "finalNewline": false,
+    "prNumber": "decimal, no sign, no padding, no whitespace",
+    "oids": "full lowercase hex, 40 or 64 chars; abbreviations rejected",
+    "specHashWhenAbsent": "the literal string \"none\"",
+    "policyHash": "absent in v2; adding one under the same version string is forbidden"
+  },
+  "vectors": [
+    {
+      "name": "deployed-compatibility-chinrw-stocks-pr379",
+      "kind": "deployed",
+      "$comment": "Read-only observation of the live accepted marker on chinrw/stocks PR #379 (state=READY_ROOT, codex=PASS_FRESH). This vector proves the shipped byte contract; changing it under the same marker version would invalidate every accepted marker in the wild.",
+      "input": {
+        "policyVersion": "babysit-prs-v2",
+        "repo": "chinrw/stocks",
+        "pr": 379,
+        "headOid": "e363a839522e4960d372ce42125cce05c6a64e82",
+        "baseOid": "7f1bc449f10686a1d013121c81c2c44e65a9637f",
+        "specHash": "none"
+      },
+      "payloadHex": "626162797369742d7072732d7632006368696e72772f73746f636b730033373900653336336138333935323265343936306433373263653432313235636365303563366136346538320037663162633434396631303638366131643031333132316338316332633434653635613936333766006e6f6e65",
+      "payloadLength": 119,
+      "trailingNul": false,
+      "expectedKey": "90eb74228b4dd711956acd443b74c215d2212192b8ddabc57e499037e8ab0681"
+    },
+    {
+      "name": "synthetic-with-spec-hash",
+      "kind": "synthetic",
+      "$comment": "Synthetic fixture (not observed on any deployed marker). Exercises a real 64-hex specHash and a second repository name.",
+      "input": {
+        "policyVersion": "babysit-prs-v2",
+        "repo": "example-org/example-repo",
+        "pr": 1,
+        "headOid": "0000000000000000000000000000000000000001",
+        "baseOid": "0000000000000000000000000000000000000002",
+        "specHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "payloadHex": "626162797369742d7072732d7632006578616d706c652d6f72672f6578616d706c652d7265706f0031003030303030303030303030303030303030303030303030303030303030303030303030303030303100303030303030303030303030303030303030303030303030303030303030303030303030303030320065336230633434323938666331633134396166626634633839393666623932343237616534316534363439623933346361343935393931623738353262383535",
+      "payloadLength": 188,
+      "trailingNul": false,
+      "expectedKey": "b97fba73f846460618763de65ede845fb25be08d8156856e7f64036ad1126397"
+    },
+    {
+      "name": "synthetic-sha256-oids",
+      "kind": "synthetic",
+      "$comment": "Synthetic fixture covering 64-hex (sha256) object ids.",
+      "input": {
+        "policyVersion": "babysit-prs-v2",
+        "repo": "example-org/sha256-repo",
+        "pr": 4242,
+        "headOid": "1111111111111111111111111111111111111111111111111111111111111111",
+        "baseOid": "2222222222222222222222222222222222222222222222222222222222222222",
+        "specHash": "none"
+      },
+      "payloadHex": "626162797369742d7072732d7632006578616d706c652d6f72672f7368613235362d7265706f003432343200313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131313131310032323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232323232006e6f6e65",
+      "payloadLength": 178,
+      "trailingNul": false,
+      "expectedKey": "1419a03e02693ce38120b480c84342e979772d1a520f23aa883ad936d42f5d21"
+    }
+  ],
+  "legacyMarkerVectors": {
+    "$comment": "Read-only observations of LIVE chinrw/stocks markers. The deployed 'v2' string was used for three mutually incompatible byte contracts. These vectors exist so a legacy marker is RECOGNIZED rather than mistaken for corruption; recognition never implies current acceptance. Marker head/base are recorded exactly as written, including the abbreviations some markers carry.",
+    "contract": "v2-legacy-trailing-nul",
+    "vectors": [
+      {
+        "name": "pr401-abbreviated-oids",
+        "pr": 401,
+        "markerHead": "f3f0b8b2",
+        "markerBase": "4ea9d4e8",
+        "markerSpec": "none",
+        "markerKey": "49994bd1f9cee8ed43317262db753e6ee384a403481481916c0dd6be20777b90",
+        "liveHeadOid": "f3f0b8b2a2edd38e73ed2eebab92167a33f47a23",
+        "liveBaseOid": "4ea9d4e8b540c2b8d3a359f3b2dfb73252f775e0",
+        "liveSpecHash": "none",
+        "expectedContract": "v2-legacy-trailing-nul",
+        "expectedCurrent": false
+      },
+      {
+        "name": "pr402-abbreviated-oids-and-moved-base",
+        "pr": 402,
+        "markerHead": "59876714",
+        "markerBase": "b573d2ab",
+        "markerSpec": "none",
+        "markerKey": "4e9e848e17c803ee1b5d1eab3d960d3e6d590eb9c09b4755bc42a797e065e5ff",
+        "liveHeadOid": "598767145933a2c9da9fbf8a248a5c5393f8424a",
+        "liveBaseOid": "20930b6b0e0f36c1148e25cb05f9f588ba194428",
+        "liveSpecHash": "none",
+        "expectedContract": "v2-legacy-trailing-nul",
+        "expectedCurrent": false
+      },
+      {
+        "name": "pr373-prefixed-spec-hash",
+        "pr": 373,
+        "markerHead": "375a4c5affafa00b98e25c5c44f314ea086f9add",
+        "markerBase": "be36e82d938a857917d7883e18eea26c1961c34f",
+        "markerSpec": "sha256:8360e882d80a89050577e33f99e7685e55c42ff11401c01178dc339f06300fe1",
+        "markerKey": "9ddeb2306d3984aa126ffab1ef76938edb859cd1a3c8e29a6518230733eb3c9d",
+        "liveHeadOid": "375a4c5affafa00b98e25c5c44f314ea086f9add",
+        "liveBaseOid": "be36e82d938a857917d7883e18eea26c1961c34f",
+        "liveSpecHash": "8360e882d80a89050577e33f99e7685e55c42ff11401c01178dc339f06300fe1",
+        "expectedContract": "v2-legacy-trailing-nul",
+        "expectedCurrent": false
+      },
+      {
+        "name": "pr379-active-contract-is-current",
+        "pr": 379,
+        "markerHead": "e363a839522e4960d372ce42125cce05c6a64e82",
+        "markerBase": "7f1bc449f10686a1d013121c81c2c44e65a9637f",
+        "markerSpec": "none",
+        "markerKey": "90eb74228b4dd711956acd443b74c215d2212192b8ddabc57e499037e8ab0681",
+        "liveHeadOid": "e363a839522e4960d372ce42125cce05c6a64e82",
+        "liveBaseOid": "7f1bc449f10686a1d013121c81c2c44e65a9637f",
+        "liveSpecHash": "none",
+        "expectedContract": "babysit-prs-v2",
+        "expectedCurrent": true
+      }
+    ]
+  },
+  "negativeVectors": [
+    {
+      "name": "trailing-nul-is-a-different-contract",
+      "$comment": "Appending a trailing NUL to the deployed payload yields a DIFFERENT key. This is the exact ambiguity the helper exists to eliminate; the value below must never be produced by the active contract.",
+      "payloadHexWithTrailingNul": "626162797369742d7072732d7632006368696e72772f73746f636b730033373900653336336138333935323265343936306433373263653432313235636365303563366136346538320037663162633434396631303638366131643031333132316338316332633434653635613936333766006e6f6e6500",
+      "rejectedKey": "46ea14da6800c389c999276bcae8465090b487c402fa115f12a57e74c0f2eb8a"
+    },
+    {
+      "name": "final-newline-is-a-different-contract",
+      "payloadSuffix": "\\n",
+      "rejectedKey": "4adfad6902741a6c82ce416bfed61a14b87433c6e6bce9866e099c959f22d3e0"
+    }
+  ]
+}

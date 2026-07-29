@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "babysit-prs/codex-launch-receipt-v1",
+  "title": "Codex launch receipt (v1)",
+  "description": "Controller-owned record of exactly how and from where a Codex task was launched. Written before polling begins. Every later status/result/cancel/resume call must reuse launchCwd from this receipt; the companion job store is scoped to the launch workspace, so polling from anywhere else is a context error rather than evidence about the job.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "attemptId",
+    "taskType",
+    "launchCwd",
+    "repoRoot",
+    "sourceMutationPolicy",
+    "writeMode",
+    "requestedEffort",
+    "effectiveEffort",
+    "startedAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+      "description": "Null between pre-launch and the companion returning a job id."
+    },
+    "attemptId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{6,128}$" },
+    "attemptNumber": { "type": "integer", "minimum": 1 },
+    "supersedesAttemptId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9._-]{6,128}$" },
+    "taskType": {
+      "type": "string",
+      "enum": ["review", "risk-review", "fix", "mutation", "diagnosis"]
+    },
+    "pr": { "type": ["integer", "null"], "minimum": 1 },
+    "launchCwd": { "type": "string", "minLength": 1 },
+    "repoRoot": { "type": "string", "minLength": 1 },
+    "worktreeHead": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$"
+    },
+    "headOid": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$" },
+    "baseOid": { "type": ["string", "null"], "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$" },
+    "reviewKey": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "sourceMutationPolicy": {
+      "type": "string",
+      "enum": ["forbidden", "assigned-worktree-only"]
+    },
+    "writeMode": {
+      "type": "boolean",
+      "description": "true => the companion is invoked with --write (sandbox workspace-write). The launcher has no path-scoped sandbox: write mode is all-or-nothing over the launch workspace."
+    },
+    "stagingArtifactPath": {
+      "type": ["string", "null"],
+      "description": "Relative to launchCwd. Only meaningful when writeMode is true; read-only tasks must leave this null and transport their result over stdout."
+    },
+    "canonicalArtifactPath": { "type": ["string", "null"] },
+    "requestedModel": { "type": ["string", "null"], "maxLength": 128 },
+    "requestedEffort": { "$ref": "#/definitions/effort" },
+    "effectiveEffort": { "$ref": "#/definitions/effort" },
+    "effortDowngradeReason": { "type": ["string", "null"], "maxLength": 512 },
+    "capabilitiesArtifact": { "type": ["string", "null"] },
+    "companionPath": { "type": ["string", "null"] },
+    "command": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 64
+    },
+    "startedAt": { "type": "string", "minLength": 20, "maxLength": 32 },
+    "launchStatus": {
+      "type": "string",
+      "enum": ["pre-launch", "launched", "launch-failed"]
+    },
+    "launchError": { "type": ["string", "null"], "maxLength": 4000 }
+  },
+  "definitions": {
+    "effort": {
+      "type": "string",
+      "enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+    }
+  }
+}
