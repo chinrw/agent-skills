@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import { canonicalHash, readJson, writeJsonAtomic, writeTextAtomic } from "./lib/json-io.mjs";
 import { resolveWithinRoot } from "./lib/paths.mjs";
+import { runCli } from "./lib/cli.mjs";
 import { parseArtifact, summarize, validateArtifactObject } from "./parse-codex-artifact.mjs";
 
 export const DECISIONS = {
@@ -356,11 +357,4 @@ function main(argv) {
   return decision.accepted ? 0 : 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 2;
-  }
-}
+runCli(import.meta.url, main);

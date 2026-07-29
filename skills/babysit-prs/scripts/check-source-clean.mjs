@@ -23,6 +23,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { writeJsonAtomic } from "./lib/json-io.mjs";
+import { runCli } from "./lib/cli.mjs";
 
 /** Names that scream "temporary probe" when found untracked in a checkout. */
 const PROBE_HINTS = [
@@ -141,11 +142,4 @@ function main(argv) {
   return report.ok ? 0 : 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 2;
-  }
-}
+runCli(import.meta.url, main);

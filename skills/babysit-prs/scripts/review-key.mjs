@@ -51,6 +51,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { runCli } from "./lib/cli.mjs";
+
 export const DEFAULT_POLICY_VERSION = "babysit-prs-v2";
 
 /**
@@ -412,11 +414,4 @@ function main(argv) {
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 2;
-  }
-}
+runCli(import.meta.url, main);

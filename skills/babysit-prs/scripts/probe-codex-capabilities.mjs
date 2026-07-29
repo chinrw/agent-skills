@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 
 import { readJson, writeJsonAtomic } from "./lib/json-io.mjs";
 import { assertValid } from "./lib/schema.mjs";
+import { runCli } from "./lib/cli.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = path.join(HERE, "..", "schemas", "codex-capabilities-v1.schema.json");
@@ -375,11 +376,4 @@ function main(argv) {
   return 2;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 2;
-  }
-}
+runCli(import.meta.url, main);
