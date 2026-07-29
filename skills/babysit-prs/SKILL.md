@@ -1144,7 +1144,9 @@ End your final response with exactly one BABYSIT_PR_ARTIFACT_V1 block, as the
 final structured block, matching schemas/codex-artifact-v1.schema.json. Echo
 attemptId, pr, headOid, baseOid, and reviewKey exactly as given. Every finding
 must carry file, a falsifiable claim, concrete evidence, and the same identity
-fields. Set resultCompleteness to "complete" only if you finished the analysis;
+fields. severity MUST be exactly one of: blocking, high, medium, low, advisory —
+"non-blocking" is NOT in the enum; use advisory or low for a finding that should
+not gate the merge. Set resultCompleteness to "complete" only if you finished the analysis;
 otherwise set "partial" or "aborted" and say why. Never report a count in place
 of the findings themselves.
 ```

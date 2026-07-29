@@ -410,6 +410,31 @@ test("the finding judge requires mutation evidence for pure coverage claims", ()
   assert.ok(text.includes("Reading alone never confirms it."));
 });
 
+test("the mandated review prompt states the schema's severity enum verbatim", () => {
+  // A live run lost a completed Sol review to `severity: "non-blocking"`, which
+  // is not in the schema enum. The prompt text in 10.3 is what task authors copy,
+  // so if it does not name the legal values they drift -- and the failure only
+  // surfaces on the first review that returns a genuinely non-blocking finding,
+  // long after the prompt was written.
+  const schema = JSON.parse(
+    fs.readFileSync(path.join(SKILL_DIR, "schemas", "codex-artifact-v1.schema.json"), "utf8")
+  );
+  const severity = schema.definitions?.finding?.properties?.severity?.enum;
+  assert.ok(Array.isArray(severity) && severity.length > 0, "the schema must pin a severity enum");
+
+  for (const value of severity) {
+    assert.ok(
+      SKILL.includes(value),
+      `SKILL.md must name the legal severity "${value}" so prompt authors cannot drift`
+    );
+  }
+  assert.match(
+    SKILL,
+    /"non-blocking" is NOT in the enum/,
+    "SKILL.md must call out the specific value that was observed failing"
+  );
+});
+
 test("the review range is three-dot, and identity still binds the base tip", () => {
   // A live run found every in-scope PR's baseRefOid was NOT the merge base:
   // stocks-dev had advanced, so the two-dot range reported 32-34 files where
