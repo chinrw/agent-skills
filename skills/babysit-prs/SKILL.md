@@ -1081,13 +1081,35 @@ does not apply.
 Fetch the exact PR head and base OIDs. Create a detached worktree under
 `.claude/worktrees/` at the exact head. Do not review a moving branch name.
 
-The review range is:
+The review range is the **three-dot** range, i.e. what this PR actually authors:
 
 ```text
-<baseRefOid>..<headRefOid>
+<baseRefOid>...<headRefOid>      # == mergeBase(base, head)..head
 ```
 
 Never assume `main`.
+
+`baseRefOid` is the *current tip* of the base branch, which is almost never the
+merge base — a long-lived base like `stocks-dev` advances continuously while a
+branch is open. The two-dot range `<baseRefOid>..<headRefOid>` therefore reports
+every file the base advanced independently, and attributing that drift to this
+PR is a review-scoping error, not a cosmetic one. Observed on a live run: PRs
+363/366/373/377 each showed 32-34 changed files two-dot, versus 1-3 files
+three-dot. A review scoped two-dot would have reported findings against
+unrelated frontend work — and, worse, the spec selector would have bound to
+spec files that arrived from base drift rather than from the PR.
+
+Resolve and record the merge base explicitly, and pass it to every downstream
+consumer (spec selector, Codex review prompt, verifier):
+
+```bash
+MERGE_BASE="$(git -C "$WORKTREE" merge-base "$BASE_OID" "$HEAD_OID")"
+git -C "$WORKTREE" diff --name-only "$MERGE_BASE".."$HEAD_OID"
+```
+
+The review **key** still binds `baseRefOid`, not the merge base — an advancing
+base must invalidate acceptance (section 8). Scope and identity are deliberately
+different things: identity tracks the base tip, scope tracks authorship.
 
 ### 10.2 Discover and hash intended-behavior documents
 

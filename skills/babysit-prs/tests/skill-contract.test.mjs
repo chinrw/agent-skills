@@ -409,3 +409,35 @@ test("the finding judge requires mutation evidence for pure coverage claims", ()
   assert.ok(text.includes("test-detects-regression"));
   assert.ok(text.includes("Reading alone never confirms it."));
 });
+
+test("the review range is three-dot, and identity still binds the base tip", () => {
+  // A live run found every in-scope PR's baseRefOid was NOT the merge base:
+  // stocks-dev had advanced, so the two-dot range reported 32-34 files where
+  // the PR authored 1-3. Scoping a review two-dot attributes base drift to the
+  // PR -- and lets the spec selector bind to spec files that arrived from the
+  // base, which is the exact wrong-spec failure the selector exists to prevent.
+  const section = SKILL.slice(SKILL.indexOf("### 10.1"), SKILL.indexOf("### 10.2"));
+  assert.ok(section.length > 0, "section 10.1 must exist");
+
+  assert.match(section, /three-dot/i, "10.1 must name the three-dot range");
+  assert.match(
+    section,
+    /<baseRefOid>\.\.\.<headRefOid>/,
+    "10.1 must show the three-dot range literally"
+  );
+  assert.match(section, /merge-base/, "10.1 must resolve the merge base explicitly");
+
+  // The bare two-dot form must not survive as the stated review range.
+  assert.ok(
+    !/```text\s*\n<baseRefOid>\.\.<headRefOid>\s*\n```/.test(section),
+    "the two-dot range must not be presented as the review range"
+  );
+
+  // Scope and identity are deliberately different: an advancing base must still
+  // invalidate acceptance, so the KEY keeps using baseRefOid.
+  assert.match(
+    section,
+    /binds `baseRefOid`, not the merge base/,
+    "10.1 must state the review key still binds baseRefOid, not the merge base"
+  );
+});
