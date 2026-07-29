@@ -311,6 +311,34 @@ test("the ambiguous read-only phrasing is gone", () => {
   assert.ok(SKILL.includes("Source mutation policy:      ALLOWED ONLY IN ASSIGNED WORKTREE/SCOPE."));
 });
 
+test("Codex tasks route through codex-job.mjs, never the codex-rescue wrapper", () => {
+  assert.ok(
+    SKILL.includes("**Do not use the `codex:codex-rescue` agent for any babysit-prs Codex task.**"),
+    "the prohibition must be explicit"
+  );
+  assert.ok(SKILL.includes("It cannot pin the launch cwd."));
+  assert.ok(
+    SKILL.includes("Prompt text cannot fix any of this"),
+    "the reason must be stated as structural, not a prompting problem"
+  );
+
+  // The wrapper must never be named as the mechanism for launching a lane.
+  assert.ok(
+    !/Use `codex:codex-rescue` with these lanes/.test(SKILL),
+    "the old 'use codex-rescue with these lanes' instruction must be gone"
+  );
+
+  // Every surviving mention is a prohibition, not an instruction.
+  const mentions = SKILL.split("\n").filter((line) => line.includes("codex-rescue"));
+  assert.ok(mentions.length > 0);
+  for (const line of mentions) {
+    assert.ok(
+      /Do not use|never|cannot|not use/i.test(line),
+      `codex-rescue mentioned without a prohibition: ${line.trim()}`
+    );
+  }
+});
+
 test("the launcher's sandbox is described honestly", () => {
   assert.ok(SKILL.includes("There is **no path-scoped sandbox**"));
   assert.ok(SKILL.includes("is not an enforcement boundary"));

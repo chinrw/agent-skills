@@ -216,12 +216,35 @@ These agents:
 Use a fresh context for every checkpoint. A judge that wrote code may not verify
 that code.
 
-### Codex agents
+### Codex tasks
 
-The main controller directly dispatches Codex plugin agents as siblings. A
-Claude subagent must never be asked to spawn a Codex agent.
+The main controller launches Codex tasks itself, through
+`scripts/codex-job.mjs` (section 5.5). A Claude subagent must never be asked to
+launch a Codex task.
 
-Use `codex:codex-rescue` with these lanes:
+**Do not use the `codex:codex-rescue` agent for any babysit-prs Codex task.**
+
+It is a thin Sonnet forwarding wrapper whose entire contract is to run one
+`codex-companion.mjs task ...` call and return its stdout verbatim. Three of its
+properties are disqualifying here:
+
+1. **It cannot pin the launch cwd.** It never passes `--cwd`, so the task
+   launches from *the subagent's own working directory*. The companion then
+   scopes `workspace-write` to that checkout, and the review/fix worktree the
+   task was told to modify sits outside it — which surfaces as
+   `read-only filesystem` and a workspace root pinned to the wrong checkout.
+   This is the exact blocker recorded on PRs #401 and #402.
+2. **It writes no launch receipt**, so the resulting job cannot be polled
+   reliably from anywhere (section 5.3).
+3. **Its instructions forbid it from doing follow-up work**, including status,
+   result, and cancel — so it cannot honour the artifact contract of section 5.2.
+
+Prompt text cannot fix any of this: the launch cwd is decided by the process
+that spawns the companion. Route every lane through `codex-job.mjs`, which
+validates the launch cwd, normalizes effort, writes the receipt before polling,
+and reconciles the artifact channels.
+
+Lanes:
 
 | Lane | Model and effort | Purpose |
 |---|---|---|
@@ -1075,7 +1098,8 @@ documents and calculate `specHash`. It must not form findings yet.
 ### 10.3 Codex Sol deep review
 
 The main controller launches one Codex review task **from the read worktree**
-through `scripts/codex-job.mjs` (section 5.5):
+through `scripts/codex-job.mjs` (section 5.5) — never via `codex:codex-rescue`,
+which cannot pin the launch cwd (section 2):
 
 - `--task-type review`
 - `--model gpt-5.6-sol`
@@ -1950,7 +1974,11 @@ final report.
 - Critical Claude judgment and final-verification subagents inherit `best` and
   enforce `max`; bounded spec-selection and ordinary composition agents enforce
   `xhigh`. They never spawn agents.
-- The main controller dispatches Codex and Claude agents as sibling operations.
+- The main controller dispatches Codex tasks and Claude agents as sibling
+  operations. Codex tasks go through `scripts/codex-job.mjs`, never through
+  `codex:codex-rescue` — that wrapper cannot pin the launch cwd, so it scopes
+  workspace-write to the wrong checkout and the assigned worktree comes back
+  read-only.
 - Deep review is Codex Sol-max; implementation follows risk-aware routing:
   Terra-high for ordinary work, Sol-high for complex noncritical work, and
   Sol-max immediately for critical-risk work.
