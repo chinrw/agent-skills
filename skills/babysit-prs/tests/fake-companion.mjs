@@ -172,7 +172,33 @@ function handleResult(argv) {
   const { options, positionals } = parseArgs(argv);
   const cwd = resolveCwd(options);
   const job = loadJob(cwd, positionals[0] ?? "");
-  process.stdout.write(`${JSON.stringify({ job, storedJob: { ...job, output: job.output } }, null, 2)}\n`);
+  // Mirror the INSTALLED companion's shape exactly. `storedJob.result` is an
+  // OBJECT and the model's text lives at `.rawOutput`; there is no bare
+  // `storedJob.output` string. An earlier version of this fake invented one,
+  // and that fiction let a real bug through a green suite: the collector
+  // returned the object, it stringified to "[object Object]", and three
+  // completed Sol reviews were reported as `stdout-sentinel-missing`.
+  const { output, ...rest } = job;
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        job: rest,
+        storedJob: {
+          ...rest,
+          result: {
+            status: job.status === "failed" ? 1 : 0,
+            threadId: job.threadId ?? "thread-fake",
+            rawOutput: output,
+            touchedFiles: [],
+            reasoningSummary: []
+          },
+          rendered: output
+        }
+      },
+      null,
+      2
+    )}\n`
+  );
 }
 
 function handleCancel(argv) {

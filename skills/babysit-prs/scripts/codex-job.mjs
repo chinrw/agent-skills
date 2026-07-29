@@ -542,20 +542,41 @@ function inconclusive(receipt, state, reason, extra = {}) {
   };
 }
 
-function extractTaskStdout(resultRun) {
+export function extractTaskStdout(resultRun) {
   if (resultRun.state) {
     return "";
   }
   const stored = resultRun.storedJob ?? resultRun.payload?.storedJob ?? null;
-  return (
-    stored?.output ??
-    stored?.result ??
-    stored?.stdout ??
-    stored?.finalMessage ??
-    resultRun.payload?.job?.output ??
-    resultRun.raw ??
-    ""
-  );
+  const job = resultRun.payload?.job ?? null;
+
+  // The installed companion nests the model's text at
+  // storedJob.result.rawOutput; `storedJob.result` itself is an OBJECT
+  // ({status, threadId, rawOutput, touchedFiles, reasoningSummary}). Other
+  // shapes put a bare string at .output/.rendered/.stdout/.finalMessage.
+  //
+  // Every candidate is type-checked because returning the object here
+  // stringifies to the literal "[object Object]" downstream, which reports as
+  // `stdout-sentinel-missing` and silently destroys a review that actually
+  // succeeded. Observed live on PRs 373/366/377.
+  const candidates = [
+    stored?.result?.rawOutput,
+    stored?.rendered,
+    stored?.output,
+    stored?.result,
+    stored?.stdout,
+    stored?.finalMessage,
+    job?.result?.rawOutput,
+    job?.rendered,
+    job?.output,
+    resultRun.raw
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+  return "";
 }
 
 /**

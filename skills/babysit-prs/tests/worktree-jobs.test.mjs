@@ -11,6 +11,7 @@ import {
   JOB_STATES,
   classify,
   collect,
+  extractTaskStdout,
   inspectLaunchCwd,
   launch,
   lifecycle,
@@ -345,7 +346,13 @@ test("result and cancel also use the recorded launch context", () => {
     const resultRun = lifecycle(receipt, "result", { companionPath: FAKE_COMPANION });
     assert.equal(resultRun.state, null);
     assert.equal(path.resolve(resultRun.pollingCwd), fs.realpathSync(ws.worktree));
-    assert.match(resultRun.storedJob.output, new RegExp(SENTINEL));
+    // Assert through the extractor, which is what production uses. Reaching
+    // into a specific field name here is what hid the "[object Object]" bug:
+    // the fake exposed a bare `storedJob.output` string that the real
+    // companion does not have.
+    const text = extractTaskStdout(resultRun);
+    assert.equal(typeof text, "string");
+    assert.match(text, new RegExp(SENTINEL));
 
     const cancelRun = lifecycle(receipt, "cancel", { companionPath: FAKE_COMPANION });
     assert.equal(cancelRun.state, null);
@@ -534,4 +541,40 @@ test("collect: a worktree-launched review is polled, reconciled, and persisted c
   }
 
   fs.rmSync(ws.root, { recursive: true, force: true });
+});
+
+test("extractTaskStdout never returns a non-string, whatever the companion nests", () => {
+  // The installed companion nests the model's text at storedJob.result.rawOutput
+  // and `storedJob.result` is an OBJECT. Returning it stringifies to the literal
+  // "[object Object]", which the parser then reports as stdout-sentinel-missing
+  // -- silently destroying a review that actually succeeded. Seen live on
+  // PRs 373/366/377: all three SUCCESS, all three discarded.
+  const real = {
+    storedJob: {
+      result: {
+        status: 0,
+        threadId: "t-1",
+        rawOutput: "BABYSIT_PR_ARTIFACT_V1\n```json\n{}\n```",
+        touchedFiles: [],
+        reasoningSummary: []
+      },
+      rendered: "BABYSIT_PR_ARTIFACT_V1\n```json\n{}\n```"
+    }
+  };
+  const got = extractTaskStdout(real);
+  assert.equal(typeof got, "string");
+  assert.match(got, /BABYSIT_PR_ARTIFACT_V1/);
+  assert.notEqual(got, "[object Object]");
+
+  // An object in every candidate slot must yield "" -- never a coerced object.
+  const hostile = {
+    storedJob: { result: { nested: true }, output: { a: 1 }, stdout: [1, 2], finalMessage: {} }
+  };
+  assert.equal(extractTaskStdout(hostile), "");
+
+  // A bare-string dialect must still work.
+  assert.equal(extractTaskStdout({ storedJob: { output: "hello" } }), "hello");
+
+  // A non-terminal run yields nothing at all.
+  assert.equal(extractTaskStdout({ state: "RUNNING", storedJob: { rendered: "x" } }), "");
 });
