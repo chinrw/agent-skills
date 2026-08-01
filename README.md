@@ -25,6 +25,17 @@ skills/<skill-name>/tests/      fixture tests; no network, no real PRs
 agents/<agent-name>.md          subagent definitions the skills dispatch
 ```
 
+## codex-implementation
+
+Claude-plans / Codex-implements orchestration workflow. See
+`skills/codex-implementation/SKILL.md`.
+
+Claude owns preflight exploration, design decisions, acceptance criteria, and
+final validation; Codex (via the `codex:codex-rescue` agent) writes the
+implementation against a bounded handoff. The user-scope `~/.claude/CLAUDE.md`
+keeps only the when-to-delegate triggers and points here for the full
+workflow, so the procedure has a single version-controlled source.
+
 ## babysit-prs
 
 Quality-first PR readiness and stacked-merge controller. See
