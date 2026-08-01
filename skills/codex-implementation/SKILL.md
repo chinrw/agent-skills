@@ -81,6 +81,12 @@ For review fixes or continuation of the same implementation, use:
 
 Do not use `Skill(codex:rescue)`.
 
+Reasoning effort on this path accepts `none|minimal|low|medium|high|xhigh`
+and rejects `max` outright — unlike babysit-prs there is no downgrade
+normalization here, so a `--effort max` request fails instead of degrading.
+Leave `--effort` unset for the configured default, or pass `--effort xhigh`
+explicitly when the task warrants maximum reasoning.
+
 Prefer bounded foreground implementation slices. Split a large implementation
 into sequential, independently verifiable slices rather than sending one
 open-ended request.

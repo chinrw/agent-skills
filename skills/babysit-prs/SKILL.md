@@ -246,14 +246,14 @@ and reconciles the artifact channels.
 
 Lanes:
 
-| Lane | Model and effort | Purpose |
+| Lane | Model and requested effort (logical) | Purpose |
 |---|---|---|
-| Deep review | `gpt-5.6-sol`, `max` | Exact-base, spec-aware adversarial review |
-| Extra risky-domain review | `gpt-5.6-sol`, `max` | At most one independent extra pass |
+| Deep review | `gpt-5.6-sol`, `max` (→ ceiling) | Exact-base, spec-aware adversarial review |
+| Extra risky-domain review | `gpt-5.6-sol`, `max` (→ ceiling) | At most one independent extra pass |
 | Bounded routine fix | `gpt-5.6-terra`, `high` | Clear, mechanical or ordinary implementation |
 | Complex noncritical fix | `gpt-5.6-sol`, `high` | Resilience, subtle performance correctness, complex multi-file logic |
-| Critical-risk fix | `gpt-5.6-sol`, `max` | Security/auth/authz, data integrity, concurrency, destructive migration |
-| Final implementation escalation | `gpt-5.6-sol`, `max` | After a prior ordinary/complex implementation or verifier failure |
+| Critical-risk fix | `gpt-5.6-sol`, `max` (→ ceiling) | Security/auth/authz, data integrity, concurrency, destructive migration |
+| Final implementation escalation | `gpt-5.6-sol`, `max` (→ ceiling) | After a prior ordinary/complex implementation or verifier failure |
 
 These lanes are **logical** requests. The installed companion accepts a fixed
 effort enum, so every request is normalized **once at preflight** against the
@@ -743,6 +743,8 @@ sentinel extraction, staging reconciliation, canonical persistence, and the
 compact handoff. Do not duplicate this logic in prompts.
 
 ```bash
+# --effort is the requested (logical) tier; the wrapper normalizes it against
+# the capability artifact and launches the preflight ceiling (max -> xhigh today).
 node "${CLAUDE_SKILL_DIR}/scripts/codex-job.mjs" launch \
   --receipt   "$ART/attempts/$ATTEMPT/launch-receipt.json" \
   --capabilities "$RUN/codex-capabilities.json" \
