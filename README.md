@@ -18,11 +18,13 @@ exists as a directory rather than a symlink, it is moved to
 ## Layout
 
 ```
-skills/<skill-name>/SKILL.md    the skill itself
-skills/<skill-name>/scripts/    deterministic helpers the skill shells out to
-skills/<skill-name>/schemas/    JSON Schemas for every artifact it validates
-skills/<skill-name>/tests/      fixture tests; no network, no real PRs
-agents/<agent-name>.md          subagent definitions the skills dispatch
+skills/<skill-name>/SKILL.md          Claude Code skills (installed to ~/.claude/skills)
+skills/<skill-name>/scripts/          deterministic helpers the skill shells out to
+skills/<skill-name>/schemas/          JSON Schemas for every artifact it validates
+skills/<skill-name>/tests/            fixture tests; no network, no real PRs
+agents/<agent-name>.md                subagent definitions the skills dispatch
+codex-skills/<skill-name>/SKILL.md    Codex CLI skills (installed to ~/.agents/skills)
+codex-skills/<skill-name>/prompts/    checkpoint prompts replacing Claude subagents
 ```
 
 ## codex-implementation
@@ -73,3 +75,20 @@ faked and every input is a fixture.
 
 `--dry-run` blocks remote writes but still permits read-only Codex reviews, so
 prefer `--snapshot-only` for routine checks.
+
+## babysit-prs-codex
+
+Full-capability port of babysit-prs for the **Codex CLI** harness
+(`codex-skills/babysit-prs-codex/`, installed into `~/.agents/skills`). The
+controller is a Codex session instead of Claude Code; the six Claude judgment
+subagents become fresh `codex exec` checkpoint sub-processes driven by prompt
+files under `prompts/`. The `scripts/` and `schemas/` entries are relative
+symlinks into `skills/babysit-prs/` — both versions share one implementation
+of the review-key, companion-job, artifact-reconciliation, and
+mutation-evidence contracts, plus the repository policy file and v2 status
+markers, so the two harnesses can babysit the same repository without
+disagreeing about state.
+
+What the port deliberately trades away: cross-model independence (controller
+and judges are all Codex); it keeps fresh-context independence per checkpoint
+and leaves every deterministic gate authoritative.
