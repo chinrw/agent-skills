@@ -21,15 +21,20 @@ Before delegation, Claude must:
 - confirm the delegated edit surface lies inside the git repository that
   contains the session's working directory.
 
-Codex derives its sandbox from the session cwd: `--write` runs under
+Codex derives its sandbox from the workspace root: `--write` runs under
 `workspace-write`, whose only writable root is the git repo root of the
-directory the companion was launched in. A path outside that tree is readable
-but not writable, and Codex does not fail on it. It relocates the work into a
-scratch directory inside the writable repo, so the delegation looks like it
-succeeded while the target repo stays untouched.
+companion's cwd. A path outside that tree is readable but not writable, and
+Codex does not fail on it. It relocates the work into a scratch directory
+inside the writable repo, so the delegation looks like it succeeded while the
+target repo stays untouched.
 
-If the target lives in another repository, do not delegate from here. Start a
-session in that repository so the workspace root lines up.
+The companion accepts `--cwd <path>` on `task`, `status`, `result`, and
+`cancel`, and derives the workspace root from it. The codex-rescue subagent
+does not: it forwards a fixed flag set, so a `--cwd` written into the
+delegation message lands in the prompt text instead of reaching the companion.
+For a target outside the session repo, either start a session in that
+repository, or bypass the subagent and invoke the companion directly with
+`--cwd`, the way babysit-prs does.
 
 Claude may use a read-only Explore subagent for noisy repository exploration,
 but Claude must synthesize the findings and choose the plan.
