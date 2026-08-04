@@ -17,7 +17,19 @@ Before delegation, Claude must:
 - explore enough of the repository to choose an implementation approach;
 - resolve architecture, API, schema, dependency, compatibility, and security
   decisions before asking Codex to write code;
-- capture the relevant failing-test or current-behavior baseline when practical.
+- capture the relevant failing-test or current-behavior baseline when practical;
+- confirm the delegated edit surface lies inside the git repository that
+  contains the session's working directory.
+
+Codex derives its sandbox from the session cwd: `--write` runs under
+`workspace-write`, whose only writable root is the git repo root of the
+directory the companion was launched in. A path outside that tree is readable
+but not writable, and Codex does not fail on it. It relocates the work into a
+scratch directory inside the writable repo, so the delegation looks like it
+succeeded while the target repo stays untouched.
+
+If the target lives in another repository, do not delegate from here. Start a
+session in that repository so the workspace root lines up.
 
 Claude may use a read-only Explore subagent for noisy repository exploration,
 but Claude must synthesize the findings and choose the plan.
@@ -71,13 +83,27 @@ Use the Agent tool with:
 
 `subagent_type: "codex:codex-rescue"`
 
-For a new implementation slice, begin the delegation message with:
+Pick the execution mode by expected runtime. `--wait` blocks the subagent's
+Bash call, which Claude Code caps at 600 s. A Codex run that exceeds the cap is
+killed mid-flight and its result is orphaned, while the job itself keeps
+running server-side.
 
-`--wait --fresh`
+Use `--wait` only when the slice should finish well inside 10 minutes: one
+file, no new fixtures, a single validation command.
 
-For review fixes or continuation of the same implementation, use:
+    --wait --fresh          --wait --resume
 
-`--wait --resume`
+Otherwise hand off in background mode and poll from the main loop, because
+codex-rescue is forbidden from calling `status` or `result` itself:
+
+    --background --fresh    --background --resume
+
+A background handoff returns a job id. Poll it with the companion's own
+subcommands, resolving the versioned plugin directory first:
+
+    COMPANION=$(ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | sort -V | tail -1)
+    node "$COMPANION" status <job-id>
+    node "$COMPANION" result <job-id>
 
 Do not use `Skill(codex:rescue)`.
 
@@ -85,10 +111,13 @@ Reasoning effort on this path accepts `none|minimal|low|medium|high|xhigh`
 and rejects `max` outright — unlike babysit-prs there is no downgrade
 normalization here, so a `--effort max` request fails instead of degrading.
 Leave `--effort` unset for the configured default, or pass `--effort xhigh`
-explicitly when the task warrants maximum reasoning.
+explicitly when the task warrants maximum reasoning. Raise it deliberately:
+`xhigh` combined with a long acceptance list makes Codex re-run the whole
+validation suite several times, which is what pushes a run past the
+foreground cap.
 
-Prefer bounded foreground implementation slices. Split a large implementation
-into sequential, independently verifiable slices rather than sending one
+Prefer bounded implementation slices. Split a large implementation into
+sequential, independently verifiable slices rather than sending one
 open-ended request.
 
 While a delegated task is active, Claude must not edit files that overlap the
@@ -97,7 +126,7 @@ delegated edit surface.
 Use this handoff structure:
 
 ---
---wait --fresh
+<--wait|--background> --fresh
 
 Implement the approved implementation slice below.
 
@@ -199,6 +228,12 @@ started:
 - do not start another write-capable task while the previous task may still be
   active;
 - recover completed changes before deciding whether to resume or start fresh.
+
+A foreground timeout kills only the Bash call, not the Codex job. `status`
+will still show it running, and a resume attempt is refused while it is. Read
+the `Log:` path from the status output: it records the commands Codex ran and
+the paths it wrote, which is usually enough to recover a finished patch
+without re-running the work. Cancel the job once its output is recovered.
 
 ## 7. Completion
 
