@@ -44,7 +44,8 @@ The outcome is:
    unless `--merge-integration` explicitly permits merging a `stocks-dev` root.
 6. A PR whose base is `main` is **never** merged by this skill.
 
-Do not ask the user questions during the run. When information or authority is
+Do not ask the user questions during the run, with one exception: the
+preflight effort attestation of section 2. When information or authority is
 missing, mark the affected PR `BLOCKED`, continue independent work, and report
 the exact blocker at the end.
 
@@ -72,6 +73,10 @@ unordered set:
   whose base is exactly `stocks-dev`. It never permits merging into `main`.
 - `--max-waves N`: override the convergence-wave cap. Default: `8`; accepted
   range: `1..20`.
+- `effort=<tier>`: operator attestation of the controller session's reasoning
+  effort. Accepted tiers: `xhigh`, or the harness maximum (currently `ultra`).
+  Section 2 defines the gate; absent this argument the controller asks once at
+  preflight, and an unconfirmed effort keeps the run read-only.
 
 Unknown or contradictory arguments are a usage error. Stop before remote writes.
 
@@ -148,22 +153,48 @@ The Codex CLI session running this skill is the controller:
   authorization;
 - it remains thin and must not bulk-read diffs, specs, or review prose.
 
-At startup, resolve the skill directory, mint the run ID, and verify the
-runtime:
+At startup, resolve the skill directory, mint the run directory, and verify
+the runtime:
 
 ```bash
 BABYSIT_SKILL_DIR="$(readlink -f "$HOME/.agents/skills/babysit-prs-codex")"
-BABYSIT_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+# Each exec_command runs in a fresh shell, so $$ is not run-stable; mktemp -d
+# mints the suffix and creates the run directory in one atomic step.
+CANONICAL_RUN_DIR="$(mktemp -d \
+  "/home/chin39/Documents/play/stocks/.claude/babysit-prs/runs/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
+BABYSIT_RUN_ID="$(basename "$CANONICAL_RUN_DIR")"
 codex --version
 gh api rate_limit --jq .rate.remaining
 ls "${BABYSIT_SKILL_DIR}/prompts/"
 ```
 
+Confirm the controller effort by **operator attestation**, never
+introspection. The gate guards remote writes; the model cannot observe its own
+session's reasoning effort in this runtime, so the trust anchor is the
+operator's attestation, and a bare invocation stays read-only. The capability
+probe's `effortCeiling` (section 5.1) describes the companion lane, not this
+session, and cannot confirm it either.
+
+1. The invocation argument is primary: `effort=<tier>` naming an accepted
+   tier — `xhigh`, or the harness maximum (currently `ultra`) — confirms the
+   effort. Record `controllerEffort=user-attested-<tier>` in the run's
+   `snapshot.json`.
+2. Absent the argument, ask the user once, in the session, which accepted tier
+   the session runs at, and wait for the answer. An affirmative naming an
+   accepted tier confirms it; record it as in step 1.
+3. Refused, unanswered, or a lower tier: record
+   `controllerEffort=unconfirmed` and stay read-only. Degrade loudly — state
+   that this is the single blocking reason and the exact remedy: re-invoke
+   with `effort=<tier>`, or answer the question.
+
+`--snapshot-only` skips the question entirely: the mode is already read-only,
+so there is nothing to unlock. Record the invocation's `effort=<tier>` if
+present, else `controllerEffort=unconfirmed`.
+
 Remote writes are blocked when any of these is true:
 
 - `codex` is older than `0.145.0`;
-- the controller session's reasoning effort cannot be confirmed as `xhigh` (or
-  the harness maximum) — record `effort=unconfirmed` and stay read-only;
+- `controllerEffort` is `unconfirmed` (attestation above);
 - the `gh` probe fails, meaning the sandbox denies network access or
   authentication is missing;
 - any of the six checkpoint prompt files (below) is missing from
@@ -347,14 +378,13 @@ The main controller must not read:
 - full Codex output;
 - implementation patches.
 
-Create the **canonical run directory** — controller-owned, in the main
-checkout/run workspace:
+The **canonical run directory** — controller-owned, in the main checkout/run
+workspace — is minted once at startup (section 2, `mktemp -d`), together with
+`BABYSIT_RUN_ID`:
 
 ```text
 CANONICAL_RUN_DIR=/home/chin39/Documents/play/stocks/.claude/babysit-prs/runs/${BABYSIT_RUN_ID}/
 ```
-
-`BABYSIT_RUN_ID` is minted once at startup (section 2).
 
 Per-invocation artifacts at the run root:
 
@@ -974,7 +1004,8 @@ At the start of every wave, fetch a fresh snapshot and save it as JSON. Include:
 - unresolved review threads authored by the configured bot;
 - matching spec/plan paths and `specHash`;
 - computed `reviewKey`;
-- current classification state.
+- current classification state;
+- the recorded `controllerEffort` (section 2).
 
 The main controller may query thread IDs, counts, and author logins, but not
 thread bodies. Thread bodies are fetched only inside a fresh judgment
@@ -2138,7 +2169,9 @@ Then explicitly list:
 5. blockers and exhausted retry ladders;
 6. whether the wave cap or no-progress limit stopped convergence, and the
    `nextRetryAt` of every PR still in the external-review retry loop;
-7. any model/effort downgrade or unavailable capability;
+7. any model/effort downgrade or unavailable capability, and the recorded
+   `controllerEffort` — when it is `unconfirmed`, repeat the single blocking
+   reason and the `effort=<tier>` re-invocation remedy;
 8. worktrees reclaimed this invocation with their paths, and worktrees retained
    as residual with the `RECLAIMABLE` clause each failed.
 

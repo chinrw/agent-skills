@@ -2,8 +2,18 @@
 
 Version-controlled Claude Code skills and their companion subagents.
 
-Everything here is installed into `~/.claude` by symlink, so the working copy
-and the committed copy cannot drift.
+Two install paths exist:
+
+- **`install.sh` (dev-style)** symlinks `skills/*` into `~/.claude/skills` and
+  `agents/*.md` into `~/.claude/agents`, straight from this working copy —
+  live-editable, no drift between working and installed copy. It never touches
+  `codex-skills/`.
+- **home-manager (NixOS host)** consumes this repo as the `agent-skills` flake
+  input of `shell-config` (`home-manager/programs/claude-code/default.nix`)
+  and symlinks from /nix/store snapshots — including
+  `codex-skills/babysit-prs-codex` into `~/.agents/skills/`. Changes reach the
+  machine only via commit → push → `nix flake update agent-skills` →
+  `home-manager switch`, so the deployed snapshot can lag HEAD.
 
 ```bash
 ./install.sh           # link skills/ and agents/ into ~/.claude
@@ -18,12 +28,12 @@ exists as a directory rather than a symlink, it is moved to
 ## Layout
 
 ```
-skills/<skill-name>/SKILL.md          Claude Code skills (installed to ~/.claude/skills)
+skills/<skill-name>/SKILL.md          Claude Code skills (→ ~/.claude/skills, either install path)
 skills/<skill-name>/scripts/          deterministic helpers the skill shells out to
 skills/<skill-name>/schemas/          JSON Schemas for every artifact it validates
 skills/<skill-name>/tests/            fixture tests; no network, no real PRs
 agents/<agent-name>.md                subagent definitions the skills dispatch
-codex-skills/<skill-name>/SKILL.md    Codex CLI skills (installed to ~/.agents/skills)
+codex-skills/<skill-name>/SKILL.md    Codex CLI skills (→ ~/.agents/skills, home-manager path only)
 codex-skills/<skill-name>/prompts/    checkpoint prompts replacing Claude subagents
 ```
 
@@ -79,7 +89,8 @@ prefer `--snapshot-only` for routine checks.
 ## babysit-prs-codex
 
 Full-capability port of babysit-prs for the **Codex CLI** harness
-(`codex-skills/babysit-prs-codex/`, installed into `~/.agents/skills`). The
+(`codex-skills/babysit-prs-codex/`, installed into `~/.agents/skills` by the
+home-manager path above, never by `install.sh`). The
 controller is a Codex session instead of Claude Code; the six Claude judgment
 subagents become fresh `codex exec` checkpoint sub-processes driven by prompt
 files under `prompts/`. The `scripts/` and `schemas/` entries are relative
