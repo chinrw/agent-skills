@@ -256,6 +256,42 @@ test("collision, independent-verification, and stacked-merge rules are intact", 
   }
 });
 
+test("merged worktrees are reclaimed, and only on authoritative merge state", () => {
+  for (const rule of [
+    // The collision constraint stays; the exception to it is what is new.
+    "Clean up only worktrees owned by this run.",
+    "may be removed by\nany run, not only its owner",
+    // All four clauses of the predicate.
+    "`git -C <worktree> status --porcelain` prints nothing",
+    "the PR that owns it is `MERGED` on GitHub",
+    "it is neither the main checkout nor the worktree this run executes from",
+    // PR resolution is branch-first: worktree names follow no convention, so a
+    // name-pattern rule resolves almost nothing and the sweep goes inert.
+    "gh pr list --repo chinrw/stocks --head <branch> --state all --json number,state",
+    "`OPEN` outranks `MERGED`",
+    "gh pr view <N> --repo chinrw/stocks --json state --jq .state",
+    "not a `pr<N>-` prefix",
+    "`worktree-agent-*`",
+    // The 3-digit floor and the no-guess branch. Dropping either lets a random
+    // suffix resolve to a real merged low-numbered PR and deletes an unrelated
+    // worktree; the `gh pr view` confirmation cannot catch it, the PR is real.
+    "digit runs of **three or more** digits",
+    "two or more distinct runs — unresolved",
+    "PR numbers here are three digits",
+    // Squash merges make ancestry useless here; keep the reason in the doc.
+    "This repository squash-merges",
+    "`git merge-base --is-ancestor` reports",
+    // Both call sites, plus the modes that must not reclaim anything.
+    "Once `state=MERGED` is verified, reclaim that PR's worktree",
+    "### 3.2 Startup worktree sweep",
+    "do not sweep or remove worktrees (section 3.2)",
+    "Skip the sweep entirely under `--dry-run` and `--snapshot-only`",
+    "Never `--force`."
+  ]) {
+    assert.ok(SKILL.includes(rule), `worktree reclamation rule missing: ${rule}`);
+  }
+});
+
 test("the external-review gate semantics survive the repair", () => {
   for (const rule of [
     "A pass is the configured bot's configured reaction **on the PR body**",

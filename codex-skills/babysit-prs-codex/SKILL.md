@@ -414,6 +414,87 @@ PR #N | stage=<stage> | state=<state> | blocking=<n> | artifact=<path> | <12-wor
 Never paste findings, diffs, test logs, spec quotes, or long explanations into
 the main context.
 
+### 3.1 Reclaimable worktree predicate
+
+`RECLAIMABLE(<worktree>)` holds only when all four clauses hold:
+
+1. the path is under
+   `/home/chin39/Documents/play/stocks/.claude/worktrees/`;
+2. the PR that owns it is `MERGED` on GitHub;
+3. `git -C <worktree> status --porcelain` prints nothing;
+4. it is neither the main checkout nor the worktree this run executes from.
+
+Clause 2 is answered by GitHub and by nothing else. Resolve the owning PR
+branch-first; worktree directory names follow no enforced convention.
+
+Worktree on a branch — ask GitHub by head branch:
+
+```bash
+gh pr list --repo chinrw/stocks --head <branch> --state all --json number,state
+```
+
+A branch can carry more than one PR. `OPEN` outranks `MERGED`, so a reopened or
+resubmitted branch is never reclaimed.
+
+Detached worktree — no branch to query. The convention is a bare PR number
+embedded in the directory name, not a `pr<N>-` prefix. Extract it counting only
+digit runs of **three or more** digits:
+
+- exactly one such run — that is the PR number (`tj441-w1` → 441,
+  `s371-HjGHhy` → 371, `rb368-w1` → 368, `tj381b-Lv4kf6` → 381);
+- none, or two or more distinct runs — unresolved, and therefore not
+  `RECLAIMABLE`. Do not guess.
+
+The floor is load-bearing. PR numbers here are three digits, and a shorter run
+inside a random suffix collides with a real low-numbered merged PR: without it
+`judge-6c6uzxqq5i` yields `6`, PR #6 is `MERGED`, and 2.4 GB of unrelated work
+is deleted. `d1-6BsEJFjD`, `U36hhmov`, and `jTzegXHC` fail the same way. The
+`gh pr view` confirmation cannot catch this — the wrong PR is genuinely merged.
+
+Confirm the extracted number:
+
+```bash
+gh pr view <N> --repo chinrw/stocks --json state --jq .state
+```
+
+A worktree that neither path resolves is not `RECLAIMABLE`. `worktree-agent-*`
+branches come from the harness's own worktree isolation rather than from
+`/babysit-prs`; they map to no PR and stay non-`RECLAIMABLE` permanently. That
+is correct, not a gap to close.
+
+Never substitute git ancestry. This repository squash-merges, so a merged branch
+tip is not an ancestor of its base and `git merge-base --is-ancestor` reports
+merged work as unmerged — on a live sweep it recognized 1 of 75 worktrees.
+Ancestry-based reclamation looks correct and reclaims nothing.
+
+A worktree failing any clause stays exactly where it is, is reported as
+residual, and is never removed with `--force`.
+
+### 3.2 Startup worktree sweep
+
+Section 18 reclaims only the worktrees of PRs merged during this invocation, so
+a backlog accumulated by earlier runs never clears; one repository reached 75
+worktrees and 227 GB this way. Once per invocation, after the preflight
+(section 2) and before any PR work, enumerate every worktree:
+
+```bash
+git -C /home/chin39/Documents/play/stocks worktree list --porcelain
+```
+
+Evaluate `RECLAIMABLE` (section 3.1) for each entry under `.claude/worktrees/`,
+and remove the ones that satisfy it:
+
+```bash
+git -C /home/chin39/Documents/play/stocks worktree remove <path>
+git -C /home/chin39/Documents/play/stocks worktree prune
+```
+
+The sweep performs no GitHub write — `gh pr view --json state` is its only
+remote call. Report scanned count, reclaimed count with paths, and retained
+count with the clause each entry failed (section 21).
+
+Skip the sweep entirely under `--dry-run` and `--snapshot-only` (section 20).
+
 ---
 
 ## 4. Repository policy — already established for this workflow
@@ -1949,6 +2030,21 @@ instead, report it as queued and poll its live state; do not claim it merged.
 On any other failure, do not blindly retry. Resnapshot, classify the new reason,
 and either continue safely or mark `BLOCKED`.
 
+Once `state=MERGED` is verified, reclaim that PR's worktree if it satisfies
+`RECLAIMABLE` (section 3.1):
+
+```bash
+git -C /home/chin39/Documents/play/stocks worktree remove <path>
+git -C /home/chin39/Documents/play/stocks worktree prune
+```
+
+Never `--force`. A worktree that is dirty, or that fails any other clause, is
+left in place and reported as residual.
+
+Reclamation runs after the merge is already confirmed and is best-effort: a
+failed removal never downgrades a merged PR to a failed merge. Report the merge
+outcome and the reclamation outcome separately.
+
 ---
 
 ## 19. Collision and idempotency rules
@@ -1972,6 +2068,13 @@ Never:
 Clean up only worktrees owned by this run. Use `git worktree remove` and
 `git worktree prune`; do not `rm -rf` an unknown worktree.
 
+Exception: a worktree satisfying `RECLAIMABLE` (section 3.1) may be removed by
+any run, not only its owner. `/babysit-prs` runs as repeated invocations, so the
+run that merges a PR is almost never the run that created that PR's worktree; an
+owner-only rule leaves every merged worktree with nobody permitted to remove it.
+A merged, clean worktree holds nothing that is not already on GitHub. Everything
+failing the predicate stays untouched and is reported, never force-removed.
+
 ---
 
 ## 20. Dry-run and snapshot-only behavior
@@ -1993,6 +2096,7 @@ With `--dry-run`:
 - do not reply or resolve threads;
 - do not push;
 - do not create/update PRs;
+- do not sweep or remove worktrees (section 3.2);
 - do not merge.
 
 Report every write action that would have occurred with exact PR and reason.
@@ -2034,7 +2138,9 @@ Then explicitly list:
 5. blockers and exhausted retry ladders;
 6. whether the wave cap or no-progress limit stopped convergence, and the
    `nextRetryAt` of every PR still in the external-review retry loop;
-7. any model/effort downgrade or unavailable capability.
+7. any model/effort downgrade or unavailable capability;
+8. worktrees reclaimed this invocation with their paths, and worktrees retained
+   as residual with the `RECLAIMABLE` clause each failed.
 
 When any PR is still `WAITING_CODEX`, remind the user that the external
 30-minute loop of section 17.1 continues the retry loop automatically.
