@@ -6,6 +6,10 @@
  * head-matched, `main` is never merged into. Editing a 1600-line document is
  * exactly how such a rule quietly disappears, so they are asserted here.
  *
+ * The Codex CLI port (codex-skills/babysit-prs-codex) restates almost every
+ * one of these invariants; shared pins therefore run against both variants,
+ * so a rule cannot survive in one file while quietly dying in the other.
+ *
  * This also validates every YAML frontmatter block, JSON Schema, and fixture
  * the skill ships.
  */
@@ -23,6 +27,38 @@ const SKILL_DIR = path.join(HERE, "..");
 const AGENT_DIR = path.join(process.env.HOME ?? "", ".claude", "agents");
 
 const SKILL = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
+const CODEX_SKILL = fs.readFileSync(
+  path.join(SKILL_DIR, "..", "..", "codex-skills", "babysit-prs-codex", "SKILL.md"),
+  "utf8"
+);
+
+const VARIANTS = [
+  { name: "skills/babysit-prs/SKILL.md", text: SKILL },
+  { name: "codex-skills/babysit-prs-codex/SKILL.md", text: CODEX_SKILL }
+];
+
+/** A rule both variants must state verbatim; the failure names the file. */
+function assertShared(rule, label) {
+  for (const { name, text } of VARIANTS) {
+    assert.ok(text.includes(rule), `${label} missing from ${name}: ${rule}`);
+  }
+}
+
+/**
+ * Same invariant, deliberately renamed per harness (Claude agents vs Codex
+ * checkpoints, codex-rescue vs bare `codex exec`). Each side is pinned
+ * against its own file so neither phrasing can quietly disappear.
+ */
+function assertTwin(claudeRule, codexRule, label) {
+  assert.ok(
+    SKILL.includes(claudeRule),
+    `${label} missing from ${VARIANTS[0].name}: ${claudeRule}`
+  );
+  assert.ok(
+    CODEX_SKILL.includes(codexRule),
+    `${label} missing from ${VARIANTS[1].name}: ${codexRule}`
+  );
+}
 
 const AGENTS = [
   "babysit-pr-spec-selector",
@@ -189,45 +225,49 @@ test("dry-run still means zero remote writes", () => {
     "do not create/update PRs",
     "do not merge"
   ]) {
-    assert.ok(SKILL.includes(rule), `dry-run rule missing: ${rule}`);
+    assertShared(rule, "dry-run rule");
   }
-  assert.ok(SKILL.includes("`--dry-run` never posts an external-review trigger."));
+  assertShared("`--dry-run` never posts an external-review trigger.", "dry-run rule");
 });
 
 test("--snapshot-only is defined as strictly stronger than --dry-run", () => {
+  // Only the Claude skill carries an argument-hint; the port's frontmatter
+  // has no such field.
   const { scalars } = frontmatter(SKILL);
   assert.ok(
     scalars["argument-hint"].includes("--snapshot-only"),
     "the flag must be discoverable from the argument hint"
   );
 
-  assert.ok(SKILL.includes("### 1.1 `--snapshot-only`"));
-  assert.ok(SKILL.includes("`--snapshot-only` implies `--dry-run`"));
-  assert.ok(
-    SKILL.includes("`--snapshot-only` and `--merge-integration` together are contradictory."),
+  assertShared("### 1.1 `--snapshot-only`", "snapshot-only section");
+  assertShared("`--snapshot-only` implies `--dry-run`", "snapshot-only rule");
+  assertShared(
+    "`--snapshot-only` and `--merge-integration` together are contradictory.",
     "snapshot-only must not coexist with a merge-enabling flag"
   );
 
   // Everything the mode is forbidden to do.
   for (const prohibition of [
     "dispatch any Codex task, read-only or otherwise",
-    "dispatch any Claude judgment or verification agent",
     "create, modify, or remove a worktree",
     "run project tests, builds, or servers",
     "perform any GitHub write of any kind"
   ]) {
-    assert.ok(SKILL.includes(prohibition), `snapshot-only prohibition missing: ${prohibition}`);
+    assertShared(prohibition, "snapshot-only prohibition");
   }
+  // The judgment layer is Claude agents in the skill, checkpoints in the port.
+  assertTwin(
+    "dispatch any Claude judgment or verification agent",
+    "dispatch any judgment or verification checkpoint",
+    "snapshot-only judgment prohibition"
+  );
 
-  assert.ok(SKILL.includes("🔎 SNAPSHOT:"), "the report label must exist");
-  assert.ok(
-    SKILL.includes("Snapshot-only\nnever advances a state machine"),
+  assertShared("🔎 SNAPSHOT:", "the report label");
+  assertShared(
+    "Snapshot-only\nnever advances a state machine",
     "snapshot-only must be read-only with respect to state"
   );
-  assert.ok(
-    SKILL.includes("never as satisfied"),
-    "missing evidence must not be reported as a satisfied gate"
-  );
+  assertShared("never as satisfied", "missing evidence must not satisfy a gate");
 });
 
 test("merge safety rules are intact", () => {
@@ -240,20 +280,26 @@ test("merge safety rules are intact", () => {
     "Never push to the reviewed PR's branch.",
     "By default, auto-merge only strict stacked PRs."
   ]) {
-    assert.ok(SKILL.includes(rule), `merge rule missing: ${rule}`);
+    assertShared(rule, "merge rule");
   }
 });
 
 test("collision, independent-verification, and stacked-merge rules are intact", () => {
   for (const rule of [
     "stand down rather than duplicate or overwrite",
-    "A Codex claim is not acceptance. A fresh Claude verifier and real local gates",
     "process innermost-first",
     "Never let two writers overlap.",
     "Never resolve a thread without a pushed fix or evidence-backed disposition."
   ]) {
-    assert.ok(SKILL.includes(rule), `rule missing: ${rule}`);
+    assertShared(rule, "rule");
   }
+  // The verifier is a fresh Claude agent in the skill and a fresh checkpoint
+  // in the port; both must refuse an implementer's own claim as acceptance.
+  assertTwin(
+    "A Codex claim is not acceptance. A fresh Claude verifier and real local gates",
+    "An implementer claim is not acceptance. A fresh verifier checkpoint and real",
+    "independent-verification rule"
+  );
 });
 
 test("merged worktrees are reclaimed, and only on authoritative merge state", () => {
@@ -288,7 +334,7 @@ test("merged worktrees are reclaimed, and only on authoritative merge state", ()
     "Skip the sweep entirely under `--dry-run` and `--snapshot-only`",
     "Never `--force`."
   ]) {
-    assert.ok(SKILL.includes(rule), `worktree reclamation rule missing: ${rule}`);
+    assertShared(rule, "worktree reclamation rule");
   }
 });
 
@@ -300,17 +346,23 @@ test("the external-review gate semantics survive the repair", () => {
     "it is never a\n  permanent one-shot key",
     "Never deduplicate triggers by deleting comments."
   ]) {
-    assert.ok(SKILL.includes(rule), `external-review rule missing: ${rule}`);
+    assertShared(rule, "external-review rule");
   }
   // The relaxed strict-stacked rule stays policy-driven.
-  assert.ok(SKILL.includes("`strictStackedMode = one-round`"));
-  assert.ok(SKILL.includes("Never apply the relaxed strict-stack rule to a root or integration PR."));
+  assertShared("`strictStackedMode = one-round`", "external-review rule");
+  assertShared(
+    "Never apply the relaxed strict-stack rule to a root or integration PR.",
+    "external-review rule"
+  );
 });
 
 test("the bounded convergence loop is still bounded", () => {
-  assert.ok(SKILL.includes("max waves: 8"));
-  assert.ok(SKILL.includes("--max-waves N"));
-  assert.ok(SKILL.includes("The invocation is bounded. The external-review retry loop is not."));
+  assertShared("max waves: 8", "convergence rule");
+  assertShared("--max-waves N", "convergence rule");
+  assertShared(
+    "The invocation is bounded. The external-review retry loop is not.",
+    "convergence rule"
+  );
 });
 
 /* --------------------------- newly repaired rules ------------------------- */
@@ -331,71 +383,102 @@ test("the repaired runtime contracts are documented", () => {
     "NO TRAILING NUL",
     "babysit-prs-probe.XXXXXX"
   ]) {
-    assert.ok(SKILL.includes(rule), `repaired contract missing: ${rule}`);
+    assertShared(rule, "repaired contract");
   }
 });
 
 test("the ambiguous read-only phrasing is gone", () => {
-  assert.ok(!/STRICTLY READ-ONLY/.test(SKILL));
-  assert.ok(
-    !/source read-only;\s*write assigned artifact/i.test(SKILL),
-    "the 'read-only except write your artifact' phrasing must not return"
-  );
+  for (const { name, text } of VARIANTS) {
+    assert.ok(!/STRICTLY READ-ONLY/.test(text), `ambiguous phrasing returned in ${name}`);
+    assert.ok(
+      !/source read-only;\s*write assigned artifact/i.test(text),
+      `the 'read-only except write your artifact' phrasing must not return in ${name}`
+    );
+  }
   // Replaced by the explicit three-line labels.
-  assert.ok(SKILL.includes("Source mutation policy:     FORBIDDEN."));
-  assert.ok(SKILL.includes("Filesystem artifact:        NOT REQUIRED FOR READ-ONLY TASKS."));
-  assert.ok(SKILL.includes("Source mutation policy:      ALLOWED ONLY IN ASSIGNED WORKTREE/SCOPE."));
+  assertShared("Source mutation policy:     FORBIDDEN.", "sandbox label");
+  assertShared(
+    "Filesystem artifact:        NOT REQUIRED FOR READ-ONLY TASKS.",
+    "sandbox label"
+  );
+  assertShared(
+    "Source mutation policy:      ALLOWED ONLY IN ASSIGNED WORKTREE/SCOPE.",
+    "sandbox label"
+  );
 });
 
 test("Codex tasks route through codex-job.mjs, never the codex-rescue wrapper", () => {
-  assert.ok(
-    SKILL.includes("**Do not use the `codex:codex-rescue` agent for any babysit-prs Codex task.**"),
-    "the prohibition must be explicit"
+  // Same invariant, per-harness phrasing: the Claude skill bans its
+  // codex-rescue wrapper, the port bans the equivalent unpinned launch — a
+  // bare `codex exec` — and both must state the launch-cwd reason.
+  assertTwin(
+    "**Do not use the `codex:codex-rescue` agent for any babysit-prs Codex task.**",
+    "Do not run any babysit-prs Codex task as a bare `codex exec` call",
+    "unpinned-launch prohibition"
   );
-  assert.ok(SKILL.includes("It cannot pin the launch cwd."));
-  assert.ok(
-    SKILL.includes("Prompt text cannot fix any of this"),
+  assertTwin(
+    "It cannot pin the launch cwd.",
+    "It does not honour the launch-cwd contract.",
+    "launch-cwd reason"
+  );
+  assertShared(
+    "Prompt text cannot fix any of this",
     "the reason must be stated as structural, not a prompting problem"
   );
 
-  // The wrapper must never be named as the mechanism for launching a lane.
-  assert.ok(
-    !/Use `codex:codex-rescue` with these lanes/.test(SKILL),
-    "the old 'use codex-rescue with these lanes' instruction must be gone"
-  );
-
-  // Every surviving mention is a prohibition, not an instruction.
-  const mentions = SKILL.split("\n").filter((line) => line.includes("codex-rescue"));
-  assert.ok(mentions.length > 0);
-  for (const line of mentions) {
+  for (const { name, text } of VARIANTS) {
+    // The wrapper must never be named as the mechanism for launching a lane.
     assert.ok(
-      /Do not use|never|cannot|not use/i.test(line),
-      `codex-rescue mentioned without a prohibition: ${line.trim()}`
+      !/Use `codex:codex-rescue` with these lanes/.test(text),
+      `the old 'use codex-rescue with these lanes' instruction must be gone from ${name}`
     );
+
+    // Every surviving mention is a prohibition, not an instruction. The port
+    // names the wrapper once while attributing the ban to the Claude skill;
+    // that exact line is the only permitted non-prohibition phrasing there.
+    const codexExemptLine = "bans its `codex:codex-rescue` wrapper:";
+    const mentions = text.split("\n").filter((line) => line.includes("codex-rescue"));
+    assert.ok(mentions.length > 0, `${name} must still state the wrapper ban`);
+    for (const line of mentions) {
+      if (name.startsWith("codex-skills/") && line.trim() === codexExemptLine) continue;
+      assert.ok(
+        /Do not use|never|cannot|not use/i.test(line),
+        `codex-rescue mentioned without a prohibition in ${name}: ${line.trim()}`
+      );
+    }
   }
 });
 
 test("the launcher's sandbox is described honestly", () => {
-  assert.ok(SKILL.includes("There is **no path-scoped sandbox**"));
-  assert.ok(SKILL.includes("is not an enforcement boundary"));
-  assert.ok(
-    SKILL.includes("**Do not enable workspace write merely to\nobtain a review artifact.**"),
+  assertShared("There is **no path-scoped sandbox**", "sandbox honesty rule");
+  assertShared("is not an enforcement boundary", "sandbox honesty rule");
+  assertShared(
+    "**Do not enable workspace write merely to\nobtain a review artifact.**",
     "the prohibition on widening write mode for an artifact must remain"
   );
 });
 
 test("the deployed review-key compatibility vector is pinned in the doc", () => {
-  assert.ok(SKILL.includes("90eb74228b4dd711956acd443b74c215d2212192b8ddabc57e499037e8ab0681"));
-  assert.ok(SKILL.includes("payloadLength 119   trailingNul=false"));
-  assert.ok(SKILL.includes("scripts/review-key.mjs"));
+  assertShared(
+    "90eb74228b4dd711956acd443b74c215d2212192b8ddabc57e499037e8ab0681",
+    "review-key vector"
+  );
+  assertShared("payloadLength 119   trailingNul=false", "review-key vector");
+  assertShared("scripts/review-key.mjs", "review-key helper reference");
 });
 
 test("the legacy marker migration is documented and never grants acceptance", () => {
-  assert.ok(SKILL.includes("v2-legacy-trailing-nul"));
-  assert.ok(SKILL.includes("Legacy marker dialects — recognize, never accept"));
-  assert.ok(SKILL.includes("Only exit `0` proves review-current."));
-  assert.ok(SKILL.includes('Do not "repair" a legacy marker by copying its old key forward.'));
-  assert.ok(SKILL.includes("A marker written under a legacy dialect is recognized, never accepted."));
+  assertShared("v2-legacy-trailing-nul", "legacy marker rule");
+  assertShared("Legacy marker dialects — recognize, never accept", "legacy marker rule");
+  assertShared("Only exit `0` proves review-current.", "legacy marker rule");
+  assertShared(
+    'Do not "repair" a legacy marker by copying its old key forward.',
+    "legacy marker rule"
+  );
+  assertShared(
+    "A marker written under a legacy dialect is recognized, never accepted.",
+    "legacy marker rule"
+  );
 });
 
 test("every agent definition carries the evidence and probe-hygiene rules", () => {
@@ -458,17 +541,19 @@ test("the mandated review prompt states the schema's severity enum verbatim", ()
   const severity = schema.definitions?.finding?.properties?.severity?.enum;
   assert.ok(Array.isArray(severity) && severity.length > 0, "the schema must pin a severity enum");
 
-  for (const value of severity) {
-    assert.ok(
-      SKILL.includes(value),
-      `SKILL.md must name the legal severity "${value}" so prompt authors cannot drift`
+  for (const { name, text } of VARIANTS) {
+    for (const value of severity) {
+      assert.ok(
+        text.includes(value),
+        `${name} must name the legal severity "${value}" so prompt authors cannot drift`
+      );
+    }
+    assert.match(
+      text,
+      /"non-blocking" is NOT in the enum/,
+      `${name} must call out the specific value that was observed failing`
     );
   }
-  assert.match(
-    SKILL,
-    /"non-blocking" is NOT in the enum/,
-    "SKILL.md must call out the specific value that was observed failing"
-  );
 });
 
 test("the review range is three-dot, and identity still binds the base tip", () => {
@@ -477,28 +562,69 @@ test("the review range is three-dot, and identity still binds the base tip", () 
   // the PR authored 1-3. Scoping a review two-dot attributes base drift to the
   // PR -- and lets the spec selector bind to spec files that arrived from the
   // base, which is the exact wrong-spec failure the selector exists to prevent.
-  const section = SKILL.slice(SKILL.indexOf("### 10.1"), SKILL.indexOf("### 10.2"));
-  assert.ok(section.length > 0, "section 10.1 must exist");
+  for (const { name, text } of VARIANTS) {
+    const section = text.slice(text.indexOf("### 10.1"), text.indexOf("### 10.2"));
+    assert.ok(section.length > 0, `section 10.1 must exist in ${name}`);
 
-  assert.match(section, /three-dot/i, "10.1 must name the three-dot range");
-  assert.match(
-    section,
-    /<baseRefOid>\.\.\.<headRefOid>/,
-    "10.1 must show the three-dot range literally"
-  );
-  assert.match(section, /merge-base/, "10.1 must resolve the merge base explicitly");
+    assert.match(section, /three-dot/i, `10.1 must name the three-dot range in ${name}`);
+    assert.match(
+      section,
+      /<baseRefOid>\.\.\.<headRefOid>/,
+      `10.1 must show the three-dot range literally in ${name}`
+    );
+    assert.match(section, /merge-base/, `10.1 must resolve the merge base explicitly in ${name}`);
 
-  // The bare two-dot form must not survive as the stated review range.
-  assert.ok(
-    !/```text\s*\n<baseRefOid>\.\.<headRefOid>\s*\n```/.test(section),
-    "the two-dot range must not be presented as the review range"
-  );
+    // The bare two-dot form must not survive as the stated review range.
+    assert.ok(
+      !/```text\s*\n<baseRefOid>\.\.<headRefOid>\s*\n```/.test(section),
+      `the two-dot range must not be presented as the review range in ${name}`
+    );
 
-  // Scope and identity are deliberately different: an advancing base must still
-  // invalidate acceptance, so the KEY keeps using baseRefOid.
-  assert.match(
-    section,
-    /binds `baseRefOid`, not the merge base/,
-    "10.1 must state the review key still binds baseRefOid, not the merge base"
-  );
+    // Scope and identity are deliberately different: an advancing base must
+    // still invalidate acceptance, so the KEY keeps using baseRefOid.
+    assert.match(
+      section,
+      /binds `baseRefOid`, not the merge base/,
+      `10.1 must state the review key still binds baseRefOid, not the merge base, in ${name}`
+    );
+  }
+});
+
+/* ------------------------- cross-variant drift guard ---------------------- */
+
+// Shared mechanism sections must not silently diverge between the two
+// variants; divergence must be an explicit decision that moves the section
+// out of this list.
+const IDENTICAL_SECTIONS = [6, 9, 14, 18, 19];
+
+/** Extract `## <n>. ...` up to, not including, the next `## ` heading. */
+function section(text, n) {
+  const heading = text.match(new RegExp(`^## ${n}\\. .*$`, "m"));
+  if (!heading) return null;
+  const start = heading.index;
+  const rest = text.slice(start + heading[0].length);
+  const next = rest.search(/^## /m);
+  return next === -1
+    ? text.slice(start)
+    : text.slice(start, start + heading[0].length + next);
+}
+
+test("shared mechanism sections are byte-identical across both variants", () => {
+  for (const n of IDENTICAL_SECTIONS) {
+    const a = section(SKILL, n);
+    const b = section(CODEX_SKILL, n);
+    assert.ok(a, `section ${n} missing from ${VARIANTS[0].name}`);
+    assert.ok(b, `section ${n} missing from ${VARIANTS[1].name}`);
+    if (a === b) continue;
+
+    const aLines = a.split("\n");
+    const bLines = b.split("\n");
+    let i = 0;
+    while (i < aLines.length && i < bLines.length && aLines[i] === bLines[i]) i += 1;
+    assert.fail(
+      `section ${n} ("${aLines[0]}") diverged at line ${i + 1}:\n` +
+        `  ${VARIANTS[0].name}: ${aLines[i] ?? "<end of section>"}\n` +
+        `  ${VARIANTS[1].name}: ${bLines[i] ?? "<end of section>"}`
+    );
+  }
 });
