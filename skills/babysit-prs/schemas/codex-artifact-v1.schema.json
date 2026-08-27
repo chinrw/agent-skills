@@ -104,10 +104,13 @@
     },
     "fix": {
       "type": "object",
-      "required": ["commit", "changedFiles", "closedFindingIds"],
+      "required": ["changedFiles", "closedFindingIds"],
       "additionalProperties": false,
       "properties": {
-        "commit": { "$ref": "#/definitions/oid" },
+        "commit": {
+          "anyOf": [{ "$ref": "#/definitions/oid" }, { "type": "null" }],
+          "description": "The signed fix commit OID. Optional/null in the task-emitted artifact: a linked-worktree sandbox cannot write .git, so the controller creates the signed commit after collect and records its OID here in the canonical artifact."
+        },
         "changedFiles": {
           "type": "array",
           "items": { "type": "string", "minLength": 1, "maxLength": 1024 },
