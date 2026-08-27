@@ -52,6 +52,44 @@ import { reconcile } from "./reconcile-codex-artifacts.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RECEIPT_SCHEMA_PATH = path.join(HERE, "..", "schemas", "codex-launch-receipt-v1.schema.json");
 
+const ARTIFACT_SCHEMA_PATH = path.join(HERE, "..", "schemas", "codex-artifact-v1.schema.json");
+
+/* --------------------------- artifact contract ---------------------------- */
+
+/**
+ * Render the per-task artifact contract FROM the schema file, so the prompt a
+ * Codex task sees and the shape `collect` validates can never drift apart.
+ * Hand-written restatements of this contract wasted two full runs
+ * (chinrw/agent-skills#1): a fix task put commit fields at the top level, a
+ * review task put pr/attemptId inside findings — both REJECTED_SCHEMA.
+ */
+export function renderArtifactContract(taskType) {
+  const schema = readJson(ARTIFACT_SCHEMA_PATH);
+  const finding = schema.definitions.finding;
+  const lines = [
+    "ARTIFACT CONTRACT (generated from schemas/codex-artifact-v1.schema.json; collect validates against that schema, additionalProperties:false at every level):",
+    `- Top-level allowed keys: ${Object.keys(schema.properties).join(", ")}.`,
+    `- Top-level required keys: ${schema.required.join(", ")}. schemaVersion is the constant 1.`,
+    "- pr and attemptId are TOP-LEVEL ONLY — they must never appear inside a finding.",
+    `- Each finding allows only: ${Object.keys(finding.properties).join(", ")}. Required: ${finding.required.join(", ")} — headOid, baseOid, reviewKey are the per-finding identity fields, echoed exactly as given.`,
+    `- finding.severity must be one of: ${finding.properties.severity.enum.join(", ")}.`,
+    `- resultCompleteness must be one of: ${schema.properties.resultCompleteness.enum.join(", ")}.`
+  ];
+  if (taskType === "fix") {
+    const fix = schema.definitions.fix;
+    lines.push(
+      `- Fix results nest under the top-level "fix" object. Allowed keys: ${Object.keys(fix.properties).join(", ")}. Required: ${fix.required.join(", ")}.`,
+      "- Do NOT run git commit: a linked-worktree sandbox cannot write .git. Leave every change uncommitted and omit fix.commit (or set it null) — the controller creates the signed commit after collect and records its OID in the canonical artifact."
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Append the contract to a task prompt exactly once. */
+export function withArtifactContract(prompt, taskType) {
+  return `${prompt.trimEnd()}\n\n${renderArtifactContract(taskType)}\n`;
+}
+
 const NO_JOB_RE = /No job found for/i;
 const DEFAULT_STALL_SECONDS = 600;
 
@@ -213,7 +251,7 @@ export function launch(options) {
   if (requestedModel) args.push("--model", requestedModel);
   args.push("--effort", effort.effective);
   args.push("--json");
-  args.push(prompt);
+  args.push(withArtifactContract(prompt, taskType));
 
   const receipt = {
     schemaVersion: 1,

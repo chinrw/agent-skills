@@ -1301,13 +1301,19 @@ Filesystem artifact:     NOT REQUIRED.
 End your final response with exactly one BABYSIT_PR_ARTIFACT_V1 block, as the
 final structured block, matching schemas/codex-artifact-v1.schema.json. Echo
 attemptId, pr, headOid, baseOid, and reviewKey exactly as given. Every finding
-must carry file, a falsifiable claim, concrete evidence, and the same identity
-fields. severity MUST be exactly one of: blocking, high, medium, low, advisory —
+must carry file, a falsifiable claim, concrete evidence, and the per-finding
+identity fields headOid, baseOid, and reviewKey; pr and attemptId are top-level
+keys only and must never appear inside a finding. severity MUST be exactly one of: blocking, high, medium, low, advisory —
 "non-blocking" is NOT in the enum; use advisory or low for a finding that should
 not gate the merge. Set resultCompleteness to "complete" only if you finished the analysis;
 otherwise set "partial" or "aborted" and say why. Never report a count in place
 of the findings themselves.
 ```
+
+`codex-job.mjs launch` appends a schema-derived `ARTIFACT CONTRACT` block to
+every task prompt — the allowed-key lists always come from
+`schemas/codex-artifact-v1.schema.json` itself, so editing the schema cannot
+leave a stale hand-written key list behind in prompts or in this document.
 
 The controller then runs `codex-job.mjs collect`, which reconciles the channels,
 writes `codex-review.json` as `CANONICAL_ARTIFACT`, and returns the compact
@@ -1523,7 +1529,9 @@ Codex must:
 - add/update focused tests;
 - avoid unrelated refactors;
 - run suitable local checks;
-- commit with `git commit -s`;
+- leave every change **uncommitted** — a linked-worktree sandbox cannot write
+  `.git`, so `git commit` fails there by construction; omit `fix.commit` (or
+  set it null) in the emitted artifact;
 - write the staging `fix-result.json` **inside its launch worktree**;
 - **also** end its final response with the `BABYSIT_PR_ARTIFACT_V1` block, whose
   content must match the staging file exactly — the two channels are compared by
@@ -1534,6 +1542,11 @@ The controller reconciles both channels and writes the canonical
 `fix-result.json` under `CANONICAL_RUN_DIR`. A staging file with no stdout
 sentinel is incomplete and triggers the section 5.4 rerun policy; the file alone
 is never sufficient.
+
+The controller — not the Codex task — creates the signed commit
+(`git commit -s`) from the accepted worktree changes, records its OID as
+`fix.commit` in the canonical artifact, and hands that OID to the fresh
+verifier.
 
 ### 12.3 Fresh independent verifier
 

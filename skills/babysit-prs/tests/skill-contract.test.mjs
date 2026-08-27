@@ -628,3 +628,35 @@ test("shared mechanism sections are byte-identical across both variants", () => 
     );
   }
 });
+
+/* ---------------- fix lane and artifact contract (agent-skills#1) ---------------- */
+
+test("fix tasks are told not to commit; the controller owns the fix commit", () => {
+  assertShared("a linked-worktree sandbox cannot write", "fix-task no-commit rule");
+  assertShared(
+    "The controller — not the Codex task — creates the signed commit",
+    "controller-owned fix commit"
+  );
+  assertShared("schema-derived `ARTIFACT CONTRACT` block", "schema-derived prompt contract");
+});
+
+test("the identity-field split is explicit, not 'the same identity fields'", () => {
+  assertShared("pr and attemptId are top-level", "identity split");
+  for (const { name, text } of VARIANTS) {
+    assert.ok(
+      !text.includes("the same identity\nfields"),
+      `ambiguous identity phrasing survives in ${name}`
+    );
+  }
+});
+
+test("the controller preflight exports and canaries CLAUDE_SKILL_DIR", () => {
+  assert.ok(
+    SKILL.includes('export CLAUDE_SKILL_DIR="${CLAUDE_SKILL_DIR:-$HOME/.claude/skills/babysit-prs}"'),
+    "CLAUDE_SKILL_DIR export missing from controller preflight"
+  );
+  assert.ok(
+    SKILL.includes("BLOCKED: CLAUDE_SKILL_DIR canary failed"),
+    "CLAUDE_SKILL_DIR canary missing from controller preflight"
+  );
+});
