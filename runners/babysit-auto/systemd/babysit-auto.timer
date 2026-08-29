@@ -1,0 +1,15 @@
+[Unit]
+Description=Poll chinrw/stocks for /babysit-prs work
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+# Do not land on the minute mark alongside every other timer on the box.
+RandomizedDelaySec=90
+AccuracySec=30s
+# A missed window is not worth catching up on: the next tick re-derives
+# everything from GitHub anyway.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

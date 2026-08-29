@@ -1,0 +1,41 @@
+[Unit]
+Description=One unattended /babysit-prs tick
+Documentation=file:%h/Documents/play/agent-skills/runners/babysit-auto/README.md
+# A background run is invisible unless something says so. Only real failures
+# reach here: an idle tick ends Result=success, ActiveState=inactive.
+# OnFailure=notify-me@%n.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/play/stocks
+Environment=BABYSIT_RUNNER=%h/Documents/play/agent-skills/runners/babysit-auto
+
+# Nothing due -> the unit is skipped cleanly. ExecCondition treats exit 1..254
+# as "skip", which is the gate's exit 10, and the unit still ends in
+# Result=success so OnFailure does not fire. This is the whole point of the
+# runner: an idle tick costs three gh calls and no model turn.
+ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs due --repo chinrw/stocks
+
+# Only reached when work is due, and a failure here does mark the unit failed.
+# The gate treats anything it cannot decide as due, so a skill whose marker or
+# state contract moved gets pushed toward running and lands right here.
+ExecStartPre=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs contract
+
+# flock guards timer-against-timer; the skill's own run.lock guards against a
+# person running /babysit-prs at a terminal. The kernel drops this one on death,
+# so a killed tick cannot block the next.
+#
+# The budget is enforced by timeout(1) inside the unit, not by TimeoutStartSec:
+# systemd records its own timeout as Result=timeout, which SuccessExitStatus
+# cannot reclassify, so a bounded run would be reported as a failure forever.
+ExecStart=/run/current-system/sw/bin/flock -n -E 75 %h/.claude/babysit-prs/timer.lock \
+    /run/current-system/sw/bin/timeout --signal=INT 3300 \
+    %h/.nix-profile/bin/claude -p /babysit-prs
+
+# 124: the wall-clock budget expired. 75: a previous tick still holds the lock.
+# Both are ordinary outcomes — every PR's state lives in its GitHub status
+# comment, and the next tick reconstructs it.
+SuccessExitStatus=75 124
+TimeoutStartSec=3600
+
+Nice=10
