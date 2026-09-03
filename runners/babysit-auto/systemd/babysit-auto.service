@@ -21,9 +21,10 @@ ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs du
 # state contract moved gets pushed toward running and lands right here.
 ExecStartPre=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs contract
 
-# flock guards timer-against-timer; the skill's own run.lock guards against a
-# person running /babysit-prs at a terminal. The kernel drops this one on death,
-# so a killed tick cannot block the next.
+# flock guards timer-against-timer only. The skill has no lock of its own, so
+# a tick can still collide with a person driving /babysit-prs at a terminal
+# (README, Known gaps). The kernel drops this lock on death, so a killed tick
+# cannot block the next.
 #
 # The budget is enforced by timeout(1) inside the unit, not by TimeoutStartSec:
 # systemd records its own timeout as Result=timeout, which SuccessExitStatus

@@ -21,7 +21,7 @@ it was the operational envelope that every merge bot converges on:
 |---|---|
 | idempotent writes | the skill's v2 marker, already there |
 | state in the forge, not the runner | the status comment, already there |
-| single-flight | `flock` plus the skill's own `run.lock` |
+| single-flight | `flock`, timer against timer only (see Known gaps) |
 | conditional work | `tick-gate.mjs due` |
 | bounded runs | `timeout(1)` inside the unit |
 | loud failure | `ExecStartPre` contract check, `OnFailure` |
@@ -136,6 +136,12 @@ node tick-gate.mjs due --repo chinrw/stocks --json | jq
   and pushed as PR #571. This is the failure the gate cannot see: the skill's
   own state machine reads such PRs as needing work, but nothing notices that a
   run produced a commit and dropped it.
+- **Nothing stops a tick from running alongside an interactive session.** The
+  skill has no lock of its own: `SKILL.md` never mentions one, and a live
+  interactive run on 2026-09-03 left no lock file anywhere under
+  `.claude/babysit-prs/`. `flock` in the unit guards timer against timer only.
+  Until the gate can detect an active run, do not enable the timer while a
+  person is driving `/babysit-prs` at a terminal.
 - **The skill's `allowed-tools` frontmatter is narrower than what it runs.** A
   live `--snapshot-only` run executed `sed`, `grep` and `echo`, none of which
   match its declared patterns. Any attempt to run this under a tightened
