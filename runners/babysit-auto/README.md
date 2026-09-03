@@ -121,8 +121,19 @@ node tick-gate.mjs due --repo chinrw/stocks --json | jq
   `babysit-pr-spec-selector` agent, so a spec document edited while no PR head
   moves will not wake the timer.
 - **No notifier is wired.** `OnFailure=` in the service is a commented-out hook.
-- **Run directories still accumulate.** `<checkout>/.claude/babysit-prs/runs/` is
-  per-session and never swept; 27 had piled up before any timer existed.
+- **Nothing sweeps its own residue.** `<checkout>/.claude/babysit-prs/runs/` is
+  per-session, and review worktrees under `.claude/worktrees/` outlive the PRs
+  they were cut for. A 2026-09-03 sweep of the manual-era backlog found 31 run
+  directories (24 older than a week, 15MB) and 22 worktrees, 8 of which belonged
+  to already-merged PRs. Manual operation accumulates this over months; a
+  five-minute timer gets up to 288 chances a day.
+- **A fix can be built and never delivered.** That same sweep found two complete
+  fixes with tests — `babysit/pr535-fix-IPOclZ` and `babysit/pr538-fix-IPOclZ`,
+  each rebased exactly onto its PR's live head — committed locally and never
+  pushed, on PRs that are still open. Neither branch exists on the remote. This
+  is the failure the gate cannot see: the skill's own state machine would read
+  those PRs as needing work, but nothing notices that a run produced a commit
+  and dropped it.
 - **The skill's `allowed-tools` frontmatter is narrower than what it runs.** A
   live `--snapshot-only` run executed `sed`, `grep` and `echo`, none of which
   match its declared patterns. Any attempt to run this under a tightened
