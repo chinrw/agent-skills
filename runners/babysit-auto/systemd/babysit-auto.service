@@ -10,10 +10,11 @@ Type=oneshot
 WorkingDirectory=%h/Documents/play/stocks
 Environment=BABYSIT_RUNNER=%h/Documents/play/agent-skills/runners/babysit-auto
 
-# Nothing due -> the unit is skipped cleanly. ExecCondition treats exit 1..254
-# as "skip", which is the gate's exit 10, and the unit still ends in
-# Result=success so OnFailure does not fire. This is the whole point of the
-# runner: an idle tick costs three gh calls and no model turn.
+# Nothing due, or a run already active -> the unit is skipped cleanly.
+# ExecCondition treats exit 1..254 as "skip", which covers the gate's 10 (idle)
+# and 13 (busy), and the unit still ends in Result=success so OnFailure does
+# not fire. This is the whole point of the runner: an idle tick costs three gh
+# calls and no model turn; a busy tick costs a /proc scan and nothing else.
 ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs due --repo chinrw/stocks
 
 # Only reached when work is due, and a failure here does mark the unit failed.
@@ -21,10 +22,10 @@ ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs du
 # state contract moved gets pushed toward running and lands right here.
 ExecStartPre=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs contract
 
-# flock guards timer-against-timer only. The skill has no lock of its own, so
-# a tick can still collide with a person driving /babysit-prs at a terminal
-# (README, Known gaps). The kernel drops this lock on death, so a killed tick
-# cannot block the next.
+# flock guards timer-against-timer; the gate's busy check above (exit 13,
+# treated as skip) guards against a person driving /babysit-prs at a terminal,
+# since the skill has no lock of its own. The kernel drops this lock on death,
+# so a killed tick cannot block the next.
 #
 # The budget is enforced by timeout(1) inside the unit, not by TimeoutStartSec:
 # systemd records its own timeout as Result=timeout, which SuccessExitStatus

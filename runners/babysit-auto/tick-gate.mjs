@@ -8,7 +8,7 @@
  * `codexNextTriggerAt` (SKILL.md section 8), so "is any work due?" is decidable
  * from two `gh` calls and no model at all.
  *
- *   node tick-gate.mjs due  --repo chinrw/stocks   exit 0 due, 10 idle, 2 error
+ *   node tick-gate.mjs due  --repo chinrw/stocks   exit 0 due, 10 idle, 13 busy, 2 error
  *   node tick-gate.mjs lock --acquire --owner <id> exit 0 acquired, 11 held
  *
  * Bias: anything the gate cannot decide is reported DUE. A false DUE wastes one
@@ -22,6 +22,7 @@ import path from "node:path";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
 
+import { DEFAULT_BUSY_WINDOW_SECONDS, findActiveRun, listProcessCwds } from "./lib/busy.mjs";
 import { runCli } from "./lib/cli.mjs";
 import { parseMarker } from "./lib/marker.mjs";
 import { verifyContract } from "./lib/contract.mjs";
@@ -291,8 +292,10 @@ function isProcessAlive(pid) {
 
 const USAGE = `Usage:
   node tick-gate.mjs due --repo <owner/name> [--now <iso>] [--input <fixture.json>] [--json]
+                         [--checkout <path>] [--busy-window-seconds <n>]
       exit 0  work is due (reasons on stdout)
       exit 10 nothing due
+      exit 13 a run is already active on the checkout (cwd by default)
       exit 2  error
 
   node tick-gate.mjs lock --acquire|--status|--release|--heartbeat [--owner <id>]
@@ -339,6 +342,23 @@ function main(argv) {
 }
 
 function runDue(args) {
+  // Before any GitHub call: a tick that would collide with an interactive run
+  // must stand down whatever the PRs say.
+  const active = findActiveRun({
+    checkout: args.checkout ?? process.cwd(),
+    now: Date.now(),
+    windowMs: Number(args["busy-window-seconds"] ?? DEFAULT_BUSY_WINDOW_SECONDS) * 1000,
+    procCwds: listProcessCwds(),
+  });
+  if (active.busy) {
+    if (args.flags.has("json")) {
+      process.stdout.write(`${JSON.stringify({ busy: true, reason: active.reason })}\n`);
+    } else {
+      process.stdout.write(`BUSY ${active.reason}\n`);
+    }
+    return 13;
+  }
+
   const now = args.now ?? new Date().toISOString();
   const prs = args.input
     ? JSON.parse(fs.readFileSync(args.input, "utf8"))

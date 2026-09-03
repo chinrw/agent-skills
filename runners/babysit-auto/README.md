@@ -21,7 +21,7 @@ it was the operational envelope that every merge bot converges on:
 |---|---|
 | idempotent writes | the skill's v2 marker, already there |
 | state in the forge, not the runner | the status comment, already there |
-| single-flight | `flock`, timer against timer only (see Known gaps) |
+| single-flight | `flock` for timer against timer; the gate's busy check for timer against a person |
 | conditional work | `tick-gate.mjs due` |
 | bounded runs | `timeout(1)` inside the unit |
 | loud failure | `ExecStartPre` contract check, `OnFailure` |
@@ -47,8 +47,25 @@ tests/run-all.sh
 node tick-gate.mjs due --repo chinrw/stocks
 #   0  work is due, one reason per PR on stdout
 #  10  nothing due, earliest codexNextTriggerAt printed
+#  13  a run is already active on this checkout; stand down
 #   2  error
 ```
+
+Before any GitHub call the gate asks whether `/babysit-prs` is already running
+on the checkout (cwd, or `--checkout`). The skill has no lock of its own, so
+this is what keeps a tick from running beside a person at a terminal. Two
+signals, either one counts:
+
+- a live process whose cwd is under `.claude/worktrees/` — review and fix
+  attempts run there and can go a long time without writing anywhere else;
+- anything under `.claude/babysit-prs/runs/` written in the last 30 minutes
+  (`--busy-window-seconds`) — the controller writes there between attempts.
+
+A false busy delays one tick; a false idle is a collision, so the window is
+generous and the walk trusts no directory mtime. What it cannot see: a
+controller that has neither written nor spawned for 30 minutes. Two runs would
+then interleave, which is the mode the skill is built for anyway — every PR's
+state lives in its status comment, and each run re-derives from there.
 
 Due when: a PR has no current marker, its head or base moved, its state is
 mid-pipeline, its `codexNextTriggerAt` has come due, or CI settled under
@@ -136,12 +153,6 @@ node tick-gate.mjs due --repo chinrw/stocks --json | jq
   and pushed as PR #571. This is the failure the gate cannot see: the skill's
   own state machine reads such PRs as needing work, but nothing notices that a
   run produced a commit and dropped it.
-- **Nothing stops a tick from running alongside an interactive session.** The
-  skill has no lock of its own: `SKILL.md` never mentions one, and a live
-  interactive run on 2026-09-03 left no lock file anywhere under
-  `.claude/babysit-prs/`. `flock` in the unit guards timer against timer only.
-  Until the gate can detect an active run, do not enable the timer while a
-  person is driving `/babysit-prs` at a terminal.
 - **The skill's `allowed-tools` frontmatter is narrower than what it runs.** A
   live `--snapshot-only` run executed `sed`, `grep` and `echo`, none of which
   match its declared patterns. Any attempt to run this under a tightened
