@@ -128,12 +128,14 @@ node tick-gate.mjs due --repo chinrw/stocks --json | jq
   to already-merged PRs. Manual operation accumulates this over months; a
   five-minute timer gets up to 288 chances a day.
 - **A fix can be built and never delivered.** That same sweep found two complete
-  fixes with tests — `babysit/pr535-fix-IPOclZ` and `babysit/pr538-fix-IPOclZ`,
-  each rebased exactly onto its PR's live head — committed locally and never
-  pushed, on PRs that are still open. Neither branch exists on the remote. This
-  is the failure the gate cannot see: the skill's own state machine would read
-  those PRs as needing work, but nothing notices that a run produced a commit
-  and dropped it.
+  fixes with tests, committed locally at 06:40 by run `76de33f7` and never
+  pushed, on PRs that were still open. The run had committed each tree and then
+  compacted before its verifier step; the continuation session started #538
+  over from review, unaware the fix existed. #535's was re-derived by that
+  session and landed as PR #570; #538's was recovered from the dangling object
+  and pushed as PR #571. This is the failure the gate cannot see: the skill's
+  own state machine reads such PRs as needing work, but nothing notices that a
+  run produced a commit and dropped it.
 - **The skill's `allowed-tools` frontmatter is narrower than what it runs.** A
   live `--snapshot-only` run executed `sed`, `grep` and `echo`, none of which
   match its declared patterns. Any attempt to run this under a tightened
