@@ -111,11 +111,13 @@ alongside the existing `stocks-*-update` units, so they survive a rebuild. The
 unit points at the git checkout rather than the Nix store, so the runner can be
 iterated without a flake update; the skill it drives still comes from the store.
 
-Verified unit behaviour, measured rather than assumed:
+Verified unit behaviour, measured rather than assumed (systemd 261; a skipped
+`ExecCondition` is `Result=exec-condition`, which `is-failed` reports as
+`inactive` and `OnFailure` ignores):
 
 | case | Result | ActiveState |
 |---|---|---|
-| gate exits 10 (idle) | success | inactive |
+| gate exits 10 (idle) or 13 (busy) | exec-condition (skipped, not failed) | inactive |
 | contract check fails | exit-code | **failed** |
 | lock held by previous tick (`flock -E 75`) | success | inactive |
 | wall clock expired (`timeout` → 124) | success | inactive |

@@ -2,7 +2,8 @@
 Description=One unattended /babysit-prs tick
 Documentation=file:%h/Documents/play/agent-skills/runners/babysit-auto/README.md
 # A background run is invisible unless something says so. Only real failures
-# reach here: an idle tick ends Result=success, ActiveState=inactive.
+# reach here: an idle or busy tick ends skipped (Result=exec-condition), which
+# is not a failure.
 # OnFailure=notify-me@%n.service
 
 [Service]
@@ -12,8 +13,8 @@ Environment=BABYSIT_RUNNER=%h/Documents/play/agent-skills/runners/babysit-auto
 
 # Nothing due, or a run already active -> the unit is skipped cleanly.
 # ExecCondition treats exit 1..254 as "skip", which covers the gate's 10 (idle)
-# and 13 (busy), and the unit still ends in Result=success so OnFailure does
-# not fire. This is the whole point of the runner: an idle tick costs three gh
+# and 13 (busy); the unit ends skipped (Result=exec-condition), which is not a
+# failure, so OnFailure does not fire. This is the whole point of the runner: an idle tick costs three gh
 # calls and no model turn; a busy tick costs a /proc scan and nothing else.
 ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs due --repo chinrw/stocks
 
