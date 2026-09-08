@@ -30,6 +30,8 @@ Home Manager consumes `codex-skills/babysit-prs-codex` through shell-config's
 `agent-skills` flake input and links it at `~/.agents/skills/babysit-prs-codex`.
 Updating the deployed copy requires commit, push, a flake-input update, and a
 Home Manager switch. Repository edits alone do not change that snapshot.
+The runner service and retired Claude links require separate migration checks;
+see the [runner installation notes](runners/babysit-auto/README.md#install).
 
 Run fixtures from this checkout:
 
@@ -49,9 +51,11 @@ For scheduled operation, see [`runners/babysit-auto/`](runners/babysit-auto/READ
 ## codex-implementation
 
 [`skills/codex-implementation/SKILL.md`](skills/codex-implementation/SKILL.md)
-is the separate Claude-plans/Codex-implements workflow. It is unchanged by the
-babysit migration.
+is the separate Claude-plans/Codex-implements workflow. It retains its own
+companion execution path.
 
 `./install.sh` links the remaining `skills/` entries into `~/.claude/skills`;
 it does not install `codex-skills/`. `--check` reports link state and `--unlink`
-removes links. Existing real files are backed up before linking.
+removes links for entries still present in this checkout. Retired babysit links
+are not enumerated by either option. Existing real files are backed up before
+linking.

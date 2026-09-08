@@ -39,6 +39,7 @@ write access to the checkout/run paths are required. No sandbox bypass is used.
 The example service expects this checkout at
 `~/Documents/play/agent-skills`, stocks at `~/Documents/play/stocks`, and Codex
 on the configured service PATH. The CLI must support `--approve-for-me`.
+Run the commands below from `runners/babysit-auto/`.
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -47,10 +48,33 @@ systemctl --user daemon-reload
 systemctl --user enable --now babysit-auto.timer
 ```
 
-On Nix-managed hosts, update the corresponding Home Manager unit and the
-`agent-skills` flake input instead. Editing these examples does not update an
-already deployed service or its installed skill. Confirm both point at the
-native version before enabling the timer.
+Check who owns each installed file before deploying. Update the `agent-skills`
+flake input and switch Home Manager for the installed Codex skill. A manually
+copied systemd unit needs a separate replacement and daemon reload; a unit
+managed by Home Manager needs its declarative source updated instead.
+
+Retired `~/.claude/skills/babysit-prs` and `~/.claude/agents/babysit-pr-*.md`
+links also need a migration decision. The current shell-config activation
+only prunes dead links into the current input store path, and returns early
+when a source directory is absent. Valid links into an older Nix snapshot
+therefore survive a flake update. Inspect their targets before removing any;
+the repository's `install.sh --unlink` cannot enumerate deleted entries.
+
+Before enabling the native timer, verify the installed skill content and the
+unit's actual `ExecStart`. `tick-gate.mjs contract` checks only markers and
+states; it cannot distinguish the retired runtime from the native one.
+
+```bash
+readlink -f ~/.agents/skills/babysit-prs-codex
+cmp ../../codex-skills/babysit-prs-codex/SKILL.md \
+  ~/.agents/skills/babysit-prs-codex/SKILL.md
+systemctl --user show babysit-auto.service -p FragmentPath -p ExecStart
+systemctl --user show babysit-auto.timer -p ActiveState -p UnitFileState
+```
+
+Editing the checkout affects the gate on the next tick because the example
+unit points at this working tree. It does not replace an installed unit or
+switch an installed skill snapshot.
 
 The timer checks every five minutes with jitter. The unit holds `flock` during
 the controller run and bounds it with `timeout --signal=INT 3300`.

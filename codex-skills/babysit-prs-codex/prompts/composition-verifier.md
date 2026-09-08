@@ -25,13 +25,16 @@ Confirm all of the following:
 7. expected tree equals `<new-parent>^{tree}`;
 8. base OID and spec hash are current;
 9. fresh relevant local/CI gates pass;
-10. no risk-domain condition requires max verification.
+10. no risk-domain condition requires the critical composition verifier.
 
 Return `REVIEW` rather than guessing when ancestry, tree equality, conflict
 resolution, spec selection, or artifacts are ambiguous. Return `ESCALATE_MAX`
 for security, auth/authz, data integrity, financial correctness, concurrency,
 destructive migration, or other high-risk composition; the controller must then
 dispatch the `critical-composition-verifier` checkpoint.
+
+`ESCALATE_MAX` is the existing verdict name for that routing decision. Both
+checkpoints inherit the current session's model and reasoning configuration.
 
 # Admissible evidence
 
