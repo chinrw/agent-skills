@@ -1,105 +1,57 @@
-# skills
+# agent-skills
 
-Version-controlled Claude Code skills and their companion subagents.
-
-Two install paths exist:
-
-- **`install.sh` (dev-style)** symlinks `skills/*` into `~/.claude/skills` and
-  `agents/*.md` into `~/.claude/agents`, straight from this working copy —
-  live-editable, no drift between working and installed copy. It never touches
-  `codex-skills/`.
-- **home-manager (NixOS host)** consumes this repo as the `agent-skills` flake
-  input of `shell-config` (`home-manager/programs/claude-code/default.nix`)
-  and symlinks from /nix/store snapshots — including
-  `codex-skills/babysit-prs-codex` into `~/.agents/skills/`. Changes reach the
-  machine only via commit → push → `nix flake update agent-skills` →
-  `home-manager switch`, so the deployed snapshot can lag HEAD.
-
-```bash
-./install.sh           # link skills/ and agents/ into ~/.claude
-./install.sh --check   # report link state
-./install.sh --unlink  # remove the links
-```
-
-`install.sh` never deletes a real file: if `~/.claude/skills/<name>` already
-exists as a directory rather than a symlink, it is moved to
-`~/.claude/backups/install-<timestamp>/` before the link is created.
-
-## Layout
-
-```
-skills/<skill-name>/SKILL.md          Claude Code skills (→ ~/.claude/skills, either install path)
-skills/<skill-name>/scripts/          deterministic helpers the skill shells out to
-skills/<skill-name>/schemas/          JSON Schemas for every artifact it validates
-skills/<skill-name>/tests/            fixture tests; no network, no real PRs
-agents/<agent-name>.md                subagent definitions the skills dispatch
-codex-skills/<skill-name>/SKILL.md    Codex CLI skills (→ ~/.agents/skills, home-manager path only)
-codex-skills/<skill-name>/prompts/    checkpoint prompts replacing Claude subagents
-```
-
-## codex-implementation
-
-Claude-plans / Codex-implements orchestration workflow. See
-`skills/codex-implementation/SKILL.md`.
-
-Claude owns preflight exploration, design decisions, acceptance criteria, and
-final validation; Codex (via the `codex:codex-rescue` agent) writes the
-implementation against a bounded handoff. The user-scope `~/.claude/CLAUDE.md`
-keeps only the when-to-delegate triggers and points here for the full
-workflow, so the procedure has a single version-controlled source.
-
-## babysit-prs
-
-Quality-first PR readiness and stacked-merge controller. See
-`skills/babysit-prs/SKILL.md`.
-
-Its judgment layers are LLM agents, but the runtime contracts underneath them
-are plain code with tests, because the failures worth preventing were all
-contract failures rather than reasoning failures:
-
-| Helper | Responsibility |
-|---|---|
-| `review-key.mjs` | The one implementation of the review-identity byte contract, plus legacy-marker classification |
-| `probe-codex-capabilities.mjs` | Non-executing probe of the installed Codex companion; normalizes effort at preflight |
-| `codex-job.mjs` | Launch receipts and workspace-aware `status`/`result`/`cancel`; terminal-state classification |
-| `parse-codex-artifact.mjs` | Extracts and validates the mandatory stdout result block |
-| `reconcile-codex-artifacts.mjs` | Dual-channel reconciliation and atomic canonical persistence |
-| `mutation-evidence.mjs` | Bounded mutation experiment for test-coverage claims |
-| `check-source-clean.mjs` | Post-task probe-residue and working-tree check |
-| `external_review.py` | External-review retry state machine |
-
-### Running the tests
-
-```bash
-cd skills/babysit-prs && bash tests/run-all.sh
-```
-
-No GitHub state is touched and no real Codex task is launched: the companion is
-faked and every input is a fixture.
-
-### Safe manual validation
-
-```bash
-/babysit-prs --snapshot-only        # observe and report; no Codex, no writes
-```
-
-`--dry-run` blocks remote writes but still permits read-only Codex reviews, so
-prefer `--snapshot-only` for routine checks.
+Version-controlled agent skills and a local PR automation runner.
 
 ## babysit-prs-codex
 
-Full-capability port of babysit-prs for the **Codex CLI** harness
-(`codex-skills/babysit-prs-codex/`, installed into `~/.agents/skills` by the
-home-manager path above, never by `install.sh`). The
-controller is a Codex session instead of Claude Code; the six Claude judgment
-subagents become fresh `codex exec` checkpoint sub-processes driven by prompt
-files under `prompts/`. The `scripts/` and `schemas/` entries are relative
-symlinks into `skills/babysit-prs/` — both versions share one implementation
-of the review-key, companion-job, artifact-reconciliation, and
-mutation-evidence contracts, plus the repository policy file and v2 status
-markers, so the two harnesses can babysit the same repository without
-disagreeing about state.
+[`codex-skills/babysit-prs-codex/SKILL.md`](codex-skills/babysit-prs-codex/SKILL.md)
+prepares `chinrw/stocks` PRs for merging and merges eligible strict stacked
+leaves. Root PRs remain subject to the skill's integration/main gates.
 
-What the port deliberately trades away: cross-model independence (controller
-and judges are all Codex); it keeps fresh-context independence per checkpoint
-and leaves every deterministic gate authoritative.
+The current Codex session coordinates native subagents for review, fixes, and
+fresh independent judgment. The controller owns commits and GitHub writes.
+The skill includes its own scripts, schemas, tests, and checkpoint prompts.
+
+| Helper | Responsibility |
+|---|---|
+| `review-key.mjs` | Review identity and legacy-marker classification |
+| `validate-artifact.mjs` | Schema-derived task contracts, identity/completeness validation, and atomic publication |
+| `mutation-evidence.mjs` | Focused mutation experiments for test-coverage claims |
+| `check-source-clean.mjs` | Source cleanliness and temporary-probe checks |
+| `external_review.py` | External-review policy and retry state machine |
+
+Existing `.claude/babysit-prs.json`, run directories, worktrees, and v2 GitHub
+markers remain compatible. Those paths hold state; Claude Code is no longer
+a babysit runtime. The standalone `codex-implementation` skill below is separate.
+
+### Install and verify
+
+Home Manager consumes `codex-skills/babysit-prs-codex` through shell-config's
+`agent-skills` flake input and links it at `~/.agents/skills/babysit-prs-codex`.
+Updating the deployed copy requires commit, push, a flake-input update, and a
+Home Manager switch. Repository edits alone do not change that snapshot.
+
+Run fixtures from this checkout:
+
+```bash
+bash codex-skills/babysit-prs-codex/tests/run-all.sh
+BABYSIT_SKILL_DIR="$PWD/codex-skills/babysit-prs-codex" \
+  bash runners/babysit-auto/tests/run-all.sh
+```
+
+These checks use fixtures and a fake controller binary. They neither call a
+model nor write to GitHub. In an existing Codex session, invoke
+`babysit-prs-codex --snapshot-only` to inspect live PR state without spawning
+children, editing worktrees, or writing to GitHub.
+
+For scheduled operation, see [`runners/babysit-auto/`](runners/babysit-auto/README.md).
+
+## codex-implementation
+
+[`skills/codex-implementation/SKILL.md`](skills/codex-implementation/SKILL.md)
+is the separate Claude-plans/Codex-implements workflow. It is unchanged by the
+babysit migration.
+
+`./install.sh` links the remaining `skills/` entries into `~/.claude/skills`;
+it does not install `codex-skills/`. `--check` reports link state and `--unlink`
+removes links. Existing real files are backed up before linking.

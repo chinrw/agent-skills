@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "babysit-prs/codex-artifact-v1",
+  "title": "Codex task result artifact (v1)",
+  "description": "A native task's assigned result file and the canonical evidence published by the controller after completion, schema, and identity checks.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "taskType",
+    "attemptId",
+    "pr",
+    "headOid",
+    "baseOid",
+    "reviewKey",
+    "resultCompleteness",
+    "findings"
+  ],
+  "additionalProperties": false,
+  "anyOf": [
+    { "properties": { "taskType": { "const": "fix" } }, "required": ["fix"] },
+    { "properties": { "taskType": { "enum": ["review", "risk-review", "mutation", "diagnosis"] } } }
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskType": {
+      "type": "string",
+      "enum": ["review", "risk-review", "fix", "mutation", "diagnosis"]
+    },
+    "attemptId": { "$ref": "#/definitions/attemptId" },
+    "pr": { "type": "integer", "minimum": 1 },
+    "headOid": { "$ref": "#/definitions/oid" },
+    "baseOid": { "$ref": "#/definitions/oid" },
+    "reviewKey": { "$ref": "#/definitions/sha256" },
+    "specHash": {
+      "anyOf": [{ "const": "none" }, { "$ref": "#/definitions/sha256" }]
+    },
+    "resultCompleteness": {
+      "type": "string",
+      "enum": ["complete", "partial", "aborted"],
+      "description": "Only \"complete\" may be accepted as evidence. A task that could not finish its analysis must say so here rather than emitting a shortened findings list."
+    },
+    "incompleteReason": { "type": ["string", "null"], "maxLength": 2000 },
+    "riskDomains": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+      "maxItems": 32
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "fix": { "$ref": "#/definitions/fix" },
+    "notes": { "type": ["string", "null"], "maxLength": 4000 }
+  },
+  "definitions": {
+    "oid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$",
+      "description": "Full lowercase git object id. Abbreviations are never accepted."
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "attemptId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{6,128}$" },
+    "finding": {
+      "type": "object",
+      "description": "A finding is evidence only when it carries complete structured content. A summary count is never a finding.",
+      "required": [
+        "id",
+        "severity",
+        "file",
+        "claim",
+        "evidence",
+        "headOid",
+        "baseOid",
+        "reviewKey"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,32}$" },
+        "severity": {
+          "type": "string",
+          "enum": ["blocking", "high", "medium", "low", "advisory"]
+        },
+        "file": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "line": { "type": ["integer", "null"], "minimum": 1 },
+        "symbol": { "type": ["string", "null"], "maxLength": 256 },
+        "claim": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 2000,
+          "description": "A concrete falsifiable claim."
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 8000,
+          "description": "The specific code path or failure scenario that makes the claim checkable."
+        },
+        "failureScenario": { "type": ["string", "null"], "maxLength": 8000 },
+        "specReference": { "type": ["string", "null"], "maxLength": 1024 },
+        "requiresMutationEvidence": {
+          "type": "boolean",
+          "description": "Set by the reviewer when the claim is essentially \"the test does not actually cover this\". Such a finding may not be judged blocking on reading alone."
+        },
+        "headOid": { "$ref": "#/definitions/oid" },
+        "baseOid": { "$ref": "#/definitions/oid" },
+        "reviewKey": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "fix": {
+      "type": "object",
+      "required": ["changedFiles", "closedFindingIds"],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "anyOf": [{ "$ref": "#/definitions/oid" }, { "type": "null" }],
+          "description": "The signed fix commit OID. The native task leaves this absent or null; the controller creates the commit after validation and records its OID in the canonical artifact."
+        },
+        "changedFiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "maxItems": 500
+        },
+        "closedFindingIds": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,32}$" },
+          "maxItems": 200
+        },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 2000 },
+          "maxItems": 100
+        },
+        "residualRisk": { "type": ["string", "null"], "maxLength": 4000 }
+      }
+    }
+  }
+}

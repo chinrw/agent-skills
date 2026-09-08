@@ -46,7 +46,7 @@ acceptance evidence.
 - A count is never evidence. Summary telemetry such as `blocking=0` in a log
   or status line does not close a finding and does not approve anything.
 - Never read anything under an `attempts/*/diagnostics/` directory as evidence;
-  those are retained raw channels from a failed reconciliation.
+  those are retained rejected outputs from a failed validation.
 - Never recompute the review key from prose. Read it from the artifact, or call
   `"${BABYSIT_SKILL_DIR}/scripts/review-key.mjs"`.
 - Where a closed finding was a test-coverage claim, check the mutation-evidence
@@ -87,7 +87,7 @@ Write exactly one:
 
 - Do not edit, implement, commit, push, comment, resolve, or merge — GitHub
   writes are always forbidden for this checkpoint.
-- Do not launch Codex tasks or nested `codex exec` runs.
+- Return to the controller after this assignment; do not spawn children.
 - Do not verify code you authored.
 - Do not accept stale OIDs, stale attempt IDs, or unvalidated artifacts.
 - Do not paste detailed diffs, findings, or logs into your final message.

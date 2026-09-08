@@ -1,7 +1,7 @@
 ---
 name: babysit-prs-codex
 description: >-
-  Codex CLI port of babysit-prs: prepare open PRs in chinrw/stocks to
+  Use native Codex subagents to prepare open PRs in chinrw/stocks to
   merge-ready, automatically merge strict stacked PRs innermost-first, and
   report ready integration/root PRs for the user. Manual only: this workflow
   may push fix branches, create PRs, reply to and resolve review threads, and
@@ -11,21 +11,15 @@ disable-model-invocation: true
 
 # `babysit-prs-codex` — quality-first PR readiness and stacked-merge controller
 
-This is the **Codex CLI port** of the Claude Code `/babysit-prs` skill. Run it
-in a Codex CLI session on a Sol-class model at `xhigh` reasoning effort.
-Critical judgment and final-verification checkpoints run as dedicated fresh
-`codex exec` sub-processes at the effort ceiling; bounded spec selection and
-ordinary composition checks run the same way at `xhigh`.
+Run this skill in the current Codex session. The controller uses native
+subagents for reviews, fixes, and independent judgment checkpoints.
 
-Terminology in this port:
-
-- **the controller** — the Codex CLI session running this skill;
-- **a Codex task** — a delegated companion job launched through
-  `scripts/codex-job.mjs` (section 5), never the controller session itself;
-- **a checkpoint** — a fresh foreground `codex exec` judgment sub-process
-  (section 2), the port of the original skill's Claude judgment agents;
-- **the external bot** — the `@codex review` GitHub bot of section 13; the
-  `codex*` marker fields and the `WAITING_CODEX` state refer to it.
+- **controller**: the current session, responsible for snapshots, scheduling,
+  accepted artifacts, commits, GitHub writes, and merges;
+- **task**: a native subagent with one bounded assignment;
+- **checkpoint**: a fresh native subagent using one of the six `prompts/` files;
+- **external bot**: the configured GitHub reviewer of section 13. The
+  `codex*` marker fields and `WAITING_CODEX` refer to this bot.
 
 The outcome is:
 
@@ -36,8 +30,8 @@ The outcome is:
 3. Every PR is advanced as far as current external gates allow. When repository
    policy requires an external review pass, the skill keeps re-triggering the
    configured bot on a cooldown — across waves, invocations, and restarts —
-   until that pass actually arrives. Use the external 30-minute loop of
-   section 17.1 for long-running babysitting.
+   until that pass actually arrives. Section 17.1 describes when a manual
+   invocation or an enabled local runner continues the retry.
 4. **Strict stacked PRs** are automatically merged innermost-first when all gates
    pass.
 5. Root/integration PRs are left in a truthful `READY_ROOT` state for the user,
@@ -49,9 +43,10 @@ preflight effort attestation of section 2. When information or authority is
 missing, mark the affected PR `BLOCKED`, continue independent work, and report
 the exact blocker at the end.
 
-Run locally. This workflow depends on the locally installed codex-companion
-runtime (section 5), local worktrees, and local credentials; do not use a cloud
-scheduled task as a substitute.
+Run locally with authenticated `gh`, git worktrees, Node, Python, and native
+subagent tools. Existing `.claude/babysit-prs.json`, run directories, and
+worktree paths remain data locations for compatibility; they do not select
+an execution runtime.
 
 If context compaction occurs, or any write/merge rule becomes uncertain, reread
 `${BABYSIT_SKILL_DIR}/SKILL.md` before the next remote write. Recheck at least
@@ -74,7 +69,7 @@ unordered set:
 - `--max-waves N`: override the convergence-wave cap. Default: `8`; accepted
   range: `1..20`.
 - `effort=<tier>`: operator attestation of the controller session's reasoning
-  effort. Accepted tiers: `xhigh`, or the harness maximum (currently `ultra`).
+  effort. Accepted tiers: `xhigh`, `max`, or `ultra`.
   Section 2 defines the gate; absent this argument the controller asks once at
   preflight, and an unconfirmed effort keeps the run read-only.
 
@@ -85,15 +80,14 @@ Unknown or contradictory arguments are a usage error. Stop before remote writes.
 
 ### 1.1 `--snapshot-only`
 
-`--dry-run` blocks every *remote write* but still permits read-only Codex
-reviews, so validating the skill costs a real Sol review per in-scope PR.
+`--dry-run` blocks every *remote write* but still permits source-read-only native
+reviews, so validating the skill costs a real review per in-scope PR.
 `--snapshot-only` exists so the observable state can be checked for free, as
 often as you like.
 
 Under `--snapshot-only`, do exactly this:
 
-1. run the startup preflight (section 2) and the Codex capability probe
-   (section 5.1);
+1. run the startup preflight (section 2);
 2. resolve the external-review policy (section 4.1);
 3. build the full snapshot and stack graph (sections 6 and 7);
 4. classify every existing marker with `review-key.mjs classify` (section 8),
@@ -106,12 +100,12 @@ Under `--snapshot-only`, do exactly this:
 
 Under `--snapshot-only`, do **not**:
 
-- dispatch any Codex task, read-only or otherwise;
+- dispatch any native subagent, read-only or otherwise;
 - dispatch any judgment or verification checkpoint;
 - create, modify, or remove a worktree;
 - run project tests, builds, or servers;
-- write any run artifact except `snapshot.json`, `codex-capabilities.json`,
-  `external-review-observation.json`, and `external-review-decision.json`;
+- write any run artifact except `snapshot.json`, `external-review-observation.json`,
+  and `external-review-decision.json`;
 - perform any GitHub write of any kind.
 
 A PR whose evidence is missing is reported as the state it actually holds —
@@ -138,225 +132,88 @@ graph correctly.
 
 ---
 
-## 2. Non-negotiable model and execution contract
+## 2. Native execution contract
 
 ### Main controller
 
-The Codex CLI session running this skill is the controller:
+Use the user's current model and reasoning configuration. Native subagents
+inherit that configuration; do not pin a different model or invent an effort
+ceiling. The controller owns snapshots, scheduling, deterministic gates,
+commits, GitHub writes, and merge decisions.
 
-- model: `gpt-5.6-sol`, or the strongest available Sol-class model;
-- reasoning effort: `xhigh`;
-- sandbox: `workspace-write` with network access enabled, launched from the
-  main checkout — GitHub reads and writes go through authenticated `gh`;
-- responsibilities: snapshots, DAG/state transitions, scheduling checkpoints,
-  collision checks, deterministic gates, GitHub writes, and final merge
-  authorization;
-- it remains thin and must not bulk-read diffs, specs, or review prose.
-
-At startup, resolve the skill directory, mint the run directory, and verify
-the runtime:
+At startup, resolve `BABYSIT_SKILL_DIR` from the loaded skill path (normally
+`~/.agents/skills/babysit-prs-codex`), check authenticated `gh` access, and verify
+that all six checkpoint prompts exist. Create the run directory once:
 
 ```bash
-BABYSIT_SKILL_DIR="$(readlink -f "$HOME/.agents/skills/babysit-prs-codex")"
-# Each exec_command runs in a fresh shell, so $$ is not run-stable; mktemp -d
-# mints the suffix and creates the run directory in one atomic step.
+mkdir -p /home/chin39/Documents/play/stocks/.claude/babysit-prs/runs
 CANONICAL_RUN_DIR="$(mktemp -d \
   "/home/chin39/Documents/play/stocks/.claude/babysit-prs/runs/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
 BABYSIT_RUN_ID="$(basename "$CANONICAL_RUN_DIR")"
-codex --version
 gh api rate_limit --jq .rate.remaining
-ls "${BABYSIT_SKILL_DIR}/prompts/"
 ```
 
-Confirm the controller effort by **operator attestation**, never
-introspection. The gate guards remote writes; the model cannot observe its own
-session's reasoning effort in this runtime, so the trust anchor is the
-operator's attestation, and a bare invocation stays read-only. The capability
-probe's `effortCeiling` (section 5.1) describes the companion lane, not this
-session, and cannot confirm it either.
+Keep the controller effort attestation: an invocation argument `effort=<tier>`
+with `xhigh`, `max`, or `ultra` records `controllerEffort=user-attested-<tier>`
+in `snapshot.json`. Absent it, ask once and wait; an unanswered or lower-tier
+attestation records `controllerEffort=unconfirmed` and permits only read-only
+work. An attestation records the operator's statement; it does not change the
+session configuration. `--snapshot-only` skips the question entirely.
 
-1. The invocation argument is primary: `effort=<tier>` naming an accepted
-   tier — `xhigh`, or the harness maximum (currently `ultra`) — confirms the
-   effort. Record `controllerEffort=user-attested-<tier>` in the run's
-   `snapshot.json`.
-2. Absent the argument, ask the user once, in the session, which accepted tier
-   the session runs at, and wait for the answer. An affirmative naming an
-   accepted tier confirms it; record it as in step 1.
-3. Refused, unanswered, or a lower tier: record
-   `controllerEffort=unconfirmed` and stay read-only. Degrade loudly — state
-   that this is the single blocking reason and the exact remedy: re-invoke
-   with `effort=<tier>`, or answer the question.
+Missing native spawn/lifecycle tools or prompt files block dependent PR work.
+Keep snapshot-only available and report the missing capability. Never replace
+an independent checkpoint with controller-context acceptance.
 
-`--snapshot-only` skips the question entirely: the mode is already read-only,
-so there is nothing to unlock. Record the invocation's `effort=<tier>` if
-present, else `controllerEffort=unconfirmed`.
+### Tasks and checkpoints
 
-Remote writes are blocked when any of these is true:
+Use the runtime's native spawn, message, wait, and stop/close tools. Start a
+fresh context for every review and checkpoint (`fork_turns="none"` when that
+option exists). Supply a self-contained assignment with:
 
-- `codex` is older than `0.145.0`;
-- `controllerEffort` is `unconfirmed` (attestation above);
-- the `gh` probe fails, meaning the sandbox denies network access or
-  authentication is missing;
-- any of the six checkpoint prompt files (below) is missing from
-  `${BABYSIT_SKILL_DIR}/prompts/`.
+- PR, exact head/base OIDs, merge base, spec paths/hash, and review key;
+- an absolute worktree path and an explicit source-mutation scope;
+- attempt ID, expected identity file, and assigned output paths;
+- required checks and the relevant prompt file;
+- GitHub writes forbidden; the controller publishes accepted results.
 
-A blocked preflight may still produce a read-only snapshot and report, but may
-not push, comment, resolve, or merge.
+All children are siblings owned by the controller. Children perform only their
+assignment and return; they do not spawn further agents. The implementer and
+its verifier must be different fresh contexts.
 
-### Judgment checkpoints
+| Checkpoint prompt | Responsibility |
+|---|---|
+| `prompts/spec-selector.md` | Select specs/plans and compute `specHash` |
+| `prompts/finding-judge.md` | Validate each candidate against code and spec |
+| `prompts/thread-judge.md` | Propose evidence-backed thread dispositions |
+| `prompts/verifier.md` | Independently accept or reject a fix |
+| `prompts/composition-verifier.md` | Verify an ordinary child-merge composition |
+| `prompts/critical-composition-verifier.md` | Verify a high-risk composition |
 
-The six Claude judgment agents of the original skill become six **checkpoint
-prompts** installed with this skill under `${BABYSIT_SKILL_DIR}/prompts/`.
-Each checkpoint runs as a fresh foreground `codex exec` sub-process — a new
-context every time, never the controller's own context. Never substitute
-controller-context judgment merely to keep the run moving.
+Review and fix assignments additionally include the schema-derived contract
+from section 5. Checkpoints write their assigned JSON and return the compact
+handoff of section 3. If a checkpoint fails, retry once in a fresh context;
+a second failure is `BLOCKED: checkpoint-failed:<name>`.
 
-| Checkpoint prompt | Requested | Effective | Responsibility |
-|---|---:|---:|---|
-| `prompts/spec-selector.md` | `xhigh` | `xhigh` | Select exact specs/plans and compute `specHash` |
-| `prompts/finding-judge.md` | `max` | `xhigh` | Adversarially classify Codex findings against code and spec |
-| `prompts/thread-judge.md` | `max` | `xhigh` | Dispose unresolved bot/human review threads |
-| `prompts/verifier.md` | `max` | `xhigh` | Independently accept or reject an implementation |
-| `prompts/composition-verifier.md` | `xhigh` | `xhigh` | Verify an ordinary child-merge composition shortcut |
-| `prompts/critical-composition-verifier.md` | `max` | `xhigh` | Verify a high-risk child-merge composition shortcut |
+Assign checkpoint outputs under the attempt directory. After native completion,
+the controller checks the fields and verdict required by its prompt and pipeline
+section, verifies the assigned PR/commit identity and source cleanliness, then
+publishes the accepted artifact and its canonical hash. A compact handoff alone
+cannot authorize a fix, thread resolution, or acceptance.
 
-`max` is not in the Codex reasoning-effort enum; it normalizes to the `xhigh`
-ceiling exactly like the lane normalization below, and both values are
-recorded in the checkpoint's assignment header. If a future runtime accepts a
-higher tier, the requested tier is used with no change to this skill.
+### Concurrency and filesystem scope
 
-All six prompt files must exist before their results can authorize remote
-writes (preflight, above). A missing file means: produce a read-only snapshot,
-mark the affected work `BLOCKED: missing-checkpoint:<name>`, and do not
-silently downgrade.
-
-Dispatch template — the assignment header supplies everything the prompt
-file's placeholders need:
-
-```bash
-{
-  printf 'ASSIGNMENT\n'
-  printf 'BABYSIT_SKILL_DIR=%s\n' "$BABYSIT_SKILL_DIR"
-  printf 'CANONICAL_RUN_DIR=%s\n' "$RUN"
-  printf 'PR=%s HEAD_OID=%s BASE_OID=%s REVIEW_KEY=%s\n' "$PR" "$HEAD_OID" "$BASE_OID" "$REVIEW_KEY"
-  printf 'WORKTREE=%s\n' "$WORKTREE"
-  printf 'ARTIFACT=%s\n' "$ART/<assigned-artifact>.json"
-  printf 'EFFORT=requested=%s effective=%s\n' "$REQUESTED" "$EFFECTIVE"
-  printf 'GITHUB_WRITES=%s\n' 'forbidden'   # or: authorized:<exact scope>
-  printf '\n'
-  cat "${BABYSIT_SKILL_DIR}/prompts/<checkpoint>.md"
-} | timeout 45m codex exec \
-    --cd "$CHECKPOINT_CWD" \
-    --sandbox workspace-write \
-    -c model_reasoning_effort='"xhigh"' \
-    --output-last-message "$ART/checkpoints/<checkpoint>.last.txt" \
-    -
-```
-
-Checkpoint rules:
-
-- `$CHECKPOINT_CWD` is the main checkout for artifact-writing checkpoints and
-  the assigned read worktree for spec selection; both lie under the checkout,
-  so `workspace-write` covers the run directory and worktrees without
-  covering anything else.
-- Network access stays **disabled** for a checkpoint unless its assignment
-  explicitly authorizes GitHub writes (the finding-judge posting step, the
-  thread-judge reply/resolve step); enable it only for that invocation with
-  `-c sandbox_workspace_write.network_access=true`.
-- The checkpoint's final message must be exactly the one-line compact handoff
-  of section 3; the controller reads only the `--output-last-message` file
-  and the assigned artifact, never the transcript.
-- A checkpoint that timed out, returned a malformed handoff, or failed the
-  source-clean check is re-run once from a fresh context; a second failure is
-  `BLOCKED: checkpoint-failed:<name>`.
-
-These checkpoints:
-
-- run on the same Sol-class model as the controller, at the `xhigh` ceiling;
-- may read diffs/specs, but write only their assigned artifact;
-- must not launch Codex tasks, nested `codex exec` runs, or any other
-  sub-process agent;
-- return one compact line while detailed output goes to artifacts or GitHub.
-
-Use a fresh context for every checkpoint. A judge that wrote code may not verify
-that code. The fresh-context boundary is this port's independence mechanism:
-unlike the original, controller and judges share one model family, so the
-cross-model (Claude-vs-Codex) independence is deliberately traded away.
-Checkpoint prompts therefore stay adversarial by construction, and no LLM
-statement — controller or checkpoint — may bypass a deterministic gate.
-
-### Codex tasks
-
-The main controller launches Codex tasks itself, through
-`scripts/codex-job.mjs` (section 5.5). A checkpoint must never be asked to
-launch a Codex task.
-
-**Do not run any babysit-prs Codex task as a bare `codex exec` call or inside
-a nested interactive session.**
-
-A bare call is disqualified for the same class of reasons the Claude skill
-bans its `codex:codex-rescue` wrapper:
-
-1. **It does not honour the launch-cwd contract.** The companion scopes
-   `workspace-write` to the checkout the task is launched from; an unpinned
-   launch surfaces as `read-only filesystem` against the assigned worktree —
-   the exact blocker recorded on PRs #401 and #402.
-2. **It writes no launch receipt**, so the resulting job cannot be polled
-   reliably from anywhere (section 5.3).
-3. **It skips capability normalization and artifact reconciliation**, so
-   effort requests and the dual-channel contract of section 5.2 silently
-   degrade.
-
-Prompt text cannot fix any of this: the launch cwd is decided by the process
-that spawns the companion. Route every lane through `codex-job.mjs`, which
-validates the launch cwd, normalizes effort, writes the receipt before polling,
-and reconciles the artifact channels.
-
-Lanes:
-
-| Lane | Model and requested effort (logical) | Purpose |
-|---|---|---|
-| Deep review | `gpt-5.6-sol`, `max` (→ ceiling) | Exact-base, spec-aware adversarial review |
-| Extra risky-domain review | `gpt-5.6-sol`, `max` (→ ceiling) | At most one independent extra pass |
-| Bounded routine fix | `gpt-5.6-terra`, `high` | Clear, mechanical or ordinary implementation |
-| Complex noncritical fix | `gpt-5.6-sol`, `high` | Resilience, subtle performance correctness, complex multi-file logic |
-| Critical-risk fix | `gpt-5.6-sol`, `max` (→ ceiling) | Security/auth/authz, data integrity, concurrency, destructive migration |
-| Final implementation escalation | `gpt-5.6-sol`, `max` (→ ceiling) | After a prior ordinary/complex implementation or verifier failure |
-
-These lanes are **logical** requests. The installed companion accepts a fixed
-effort enum, so every request is normalized **once at preflight** against the
-capability artifact (section 5.1) before any task is dispatched:
-
-```text
-effective_effort = highest accepted effort <= requested effort
-```
-
-Normalization never maps upward. Record both values everywhere:
-
-```text
-requested=max effective=xhigh reason=companion-ceiling
-```
-
-Do **not** launch `max` and wait for the rejection. A capability downgrade is a
-preflight normalization, not a failed task round, and it must cost zero launches.
-If a future companion accepts `max`, the probe reports it and the lanes use it
-with no change to this skill.
-
-The model is never changed to work around an effort ceiling.
-
-Codex has no GitHub authority. It must not push, comment, resolve, create PRs,
-or merge.
-
-### Concurrency
-
-- Maximum live heavy checkpoint/Codex sub-tasks: `4`.
-- Maximum simultaneous write-capable Codex tasks: `2`.
-- Maximum writers targeting the same eventual base branch: `1`.
-- Never allow the controller and a Codex task to edit overlapping files
-  concurrently.
-- Never launch two Codex writers over the same worktree or file set.
-- Tests and builds run in the foreground. Never finish a checkpoint or end the
-  invocation while an untracked background gate is still running.
+- At most four heavy children may run in this invocation, further limited by
+  the runtime's available slots. This is an invocation limit, not a host-wide
+  resource guarantee. Collect and close finished children before replacing them.
+- At most two source writers may run, with one writer per eventual base branch.
+- Never let the controller and a child edit overlapping files or worktrees.
+- Native children share the filesystem and inherit the session's actual
+  permissions. An assigned path is not an enforcement boundary or a new sandbox.
+- Review/checkpoint children may write only their assigned run artifacts;
+  source edits are forbidden. Fix children may additionally edit their exact
+  worktree and file scope. Check source cleanliness after read tasks.
+- Tests and builds run in the foreground. Stop or collect children and their
+  processes before releasing an assignment or ending the invocation.
 
 ---
 
@@ -375,7 +232,7 @@ The main controller must not read:
 - full review-comment bodies;
 - spec or plan contents;
 - candidate-finding prose;
-- full Codex output;
+- full child output;
 - implementation patches.
 
 The **canonical run directory** — controller-owned, in the main checkout/run
@@ -386,46 +243,38 @@ workspace — is minted once at startup (section 2, `mktemp -d`), together with
 CANONICAL_RUN_DIR=/home/chin39/Documents/play/stocks/.claude/babysit-prs/runs/${BABYSIT_RUN_ID}/
 ```
 
-Per-invocation artifacts at the run root:
-
-```text
-codex-capabilities.json      one capability probe, reused by every task
-```
-
-Create per-PR artifacts under:
+Per-PR artifacts:
 
 ```text
 pr-<N>/
   snapshot.json
-  codex-review.json                 CANONICAL_ARTIFACT (controller-written)
-  codex-review-risk.json            CANONICAL_ARTIFACT (controller-written)
+  codex-review.json
+  codex-review-risk.json
   judgment.json
   confirmed-findings.json
   thread-dispositions.json
-  fix-result.json                   CANONICAL_ARTIFACT (controller-written)
+  fix-result.json
   verification.json
   composition-verification.json
   mutation-evidence/<findingId>.json
-  reactions.json
   external-review-observation.json
   external-review-decision.json
   state.json
-  checkpoints/<checkpoint>.last.txt   compact handoffs via --output-last-message
   attempts/<attemptId>/
-    launch-receipt.json             written BEFORE polling begins
-    collect.json                    terminal classification + reconciliation
-    diagnostics/                    raw channels, retained only on failure
-      stdout.raw.txt                NOT evidence
-      staging.raw.json              NOT evidence
-      README.json
+    assignment.json       controller-owned identity, scope, paths, native agent ID
+    expected.json         controller-owned expected result identity
+    result.json           child-owned result until it completes
+    validation.json       controller-owned validation summary
+    diagnostics/          rejected output; never acceptance evidence
 ```
 
-Only the controller writes anything under `CANONICAL_RUN_DIR`. Codex never
-writes here — it cannot, since this path is outside its launch root.
+The controller owns accepted artifacts and assignment metadata. Each child
+writes only its assigned result paths, which must be writable under the actual
+session permissions. If that capability is absent, block the task and report
+the path; prompt text cannot grant filesystem access.
 
-Files under `diagnostics/` exist for human inspection after a failure. No
-finding, blocker, GitHub comment, fix task, or acceptance may be derived from
-them.
+Detailed results stay on disk. Children return a compact handoff; the controller
+validates files mechanically before promoting them to canonical artifacts.
 
 `external-review-decision.json` is the run-artifact half of the external-review
 state; the GitHub status comment is the durable half. Neither is the sole truth:
@@ -648,276 +497,78 @@ A non-empty `errors` array is a configuration blocker. Mark affected PRs
 }
 ```
 
-The 1800-second cooldown deliberately matches the 30-minute external loop
-cadence (section 17.1) so long-running babysitting retries at the same rhythm
-without spamming the PR.
+The 1800-second cooldown limits retries across invocations (section 17.1).
 
 ---
 
-## 5. Codex runtime contract
+## 5. Native task results
 
-Verified operating assumptions about the installed companion
-(`codex-cli 0.145.0`, plugin `openai-codex/codex/1.0.6` — the same runtime the
-Claude Code skill uses; `codex-job.mjs` discovers its installed path):
+### 5.1 Assignment and lifecycle
 
-- The sandbox is a **boolean**: `--write` selects `workspace-write`, its absence
-  selects `read-only`. There is **no path-scoped sandbox**. Prompt text saying
-  "write only this file" is not an enforcement boundary and must never be
-  described as one.
-- The writable root is the checkout the task is launched from.
-- The companion's job store is **workspace-scoped**: it keys off
-  `git rev-parse --show-toplevel`, which for a linked worktree is the worktree,
-  not the main checkout.
-- `task`, `status`, `result`, and `cancel` all accept `--cwd`.
-- `--effort` accepts `none|minimal|low|medium|high|xhigh`. It rejects `max`.
+Before spawning a task, write its immutable identity and scope to
+`attempts/<attemptId>/assignment.json` and the six expected identity fields to
+`expected.json`: `taskType`, `attemptId`, `pr`, `headOid`, `baseOid`, `reviewKey`.
+Use a new attempt ID and unused result path for every attempt. Record the native
+agent ID immediately after spawning; wait, message, and stop using that ID.
 
-Consequences, all enforced by `scripts/codex-job.mjs` rather than by prose:
+The controller takes completion status from the native lifecycle tool, never
+from a child's artifact or a quiet terminal. Record running, completed, failed,
+cancelled, and unobservable separately. Before retrying, stop the prior child
+and confirm it has terminated. If termination cannot be confirmed, block that
+assignment rather than launch a second writer.
 
-- Any worktree Codex writes in must live under:
+### 5.2 Structured results
 
-  ```text
-  /home/chin39/Documents/play/stocks/.claude/worktrees/<unique-name>
-  ```
-
-- Never create Codex worktrees in `/tmp` or as sibling directories outside the
-  launch repository.
-- Launch the Codex task from the exact worktree it may modify.
-- Codex cannot push, use authenticated `gh`, or run loopback browser/server
-  tests.
-- If a commit exists only in a separate clone, retrieve it with
-  `git fetch <path> HEAD` before push.
-- Codex implementation scope must include exact files or bounded subsystems,
-  confirmed finding IDs, constraints, required validation, and the output
-  contract of section 5.2.
-
-### 5.1 Capability preflight — once per invocation
-
-Before dispatching any Codex task:
+Review, risk-review, diagnosis, fix, and mutation tasks write JSON to their
+assigned `result.json`, using `schemas/codex-artifact-v1.schema.json`. Generate
+the contract from that schema and include it in the native assignment:
 
 ```bash
-node "${BABYSIT_SKILL_DIR}/scripts/probe-codex-capabilities.mjs" probe \
-  --out "$RUN/codex-capabilities.json"
+node "${BABYSIT_SKILL_DIR}/scripts/validate-artifact.mjs" contract --task-type review
 ```
 
-The probe is **non-executing**. It reads the companion's declared effort enum
-and its `--help` usage text and requires them to agree. It never launches a
-review to discover whether an effort is valid.
+The schema defines allowed keys, severity values, per-finding identity, and fix
+nesting. Each task echoes the expected identity exactly. A count without the
+complete findings is not evidence; `resultCompleteness` must be `complete`.
+Source policy and artifact writes are separate: reviews cannot edit source,
+but can write their assigned result under the session's existing permissions.
 
-- Exit `0`: `acceptedEfforts` and `effortCeiling` are established. Reuse this
-  one artifact for every task in the invocation.
-- Exit `3`: detection is ambiguous. **Block Codex-dependent remote writes** and
-  mark affected PRs `BLOCKED: codex-capability-unknown`. Do not guess.
+### 5.3 Accepting a result
 
-Normalize each lane request against that artifact before launch (section 2).
-
-### 5.2 Artifact transport — the dual-channel contract
-
-Four terms, used precisely:
-
-| Term | Meaning |
-|---|---|
-| `CANONICAL_RUN_DIR` | Controller-owned directory in the main checkout/run workspace |
-| `LAUNCH_CWD` | The exact checkout/worktree the Codex task was launched from |
-| `STAGING_ARTIFACT` | A path **inside `LAUNCH_CWD`**, only for write-enabled tasks |
-| `CANONICAL_ARTIFACT` | The final controller-owned artifact under `CANONICAL_RUN_DIR` |
-
-**Never ask Codex to write outside `LAUNCH_CWD`.** The controller — not Codex —
-places a validated result into `CANONICAL_ARTIFACT`.
-
-Every Codex task, read-only or write-enabled, must end its final response with
-exactly one machine-readable block:
-
-````text
-BABYSIT_PR_ARTIFACT_V1
-```json
-{
-  "schemaVersion": 1,
-  "taskType": "review",
-  "attemptId": "att-...",
-  "pr": 379,
-  "headOid": "...",
-  "baseOid": "...",
-  "reviewKey": "...",
-  "resultCompleteness": "complete",
-  "findings": []
-}
-```
-````
-
-Requirements:
-
-- the fenced JSON is mandatory **even when a staging file was written**;
-- it must be the **final** structured block, not embedded in prose;
-- more than one sentinel block is ambiguous and is rejected;
-- schema: `schemas/codex-artifact-v1.schema.json`.
-
-The controller parses it deterministically, validates it against that schema,
-checks task type / PR / head OID / base OID / review key / expected attempt ID,
-canonicalizes the JSON, computes a SHA-256, and only then atomically writes
-`CANONICAL_ARTIFACT`.
-
-Detailed findings never enter the main controller context. They are extracted and
-persisted mechanically; the controller reasoning loop sees only the compact
-handoff and the artifact path.
-
-#### Read-only tasks (review, risk review, diagnosis)
-
-```text
-Source mutation policy:     FORBIDDEN.
-Artifact transport:         REQUIRED VIA FINAL STDOUT JSON.
-Filesystem artifact:        NOT REQUIRED FOR READ-ONLY TASKS.
-Codex launcher write mode:  false (read-only)
-```
-
-A read-only review physically cannot write a file. That is correct and expected:
-stdout is the authoritative transport, and a completed review is never lost
-because the sandbox refused a write. **Do not enable workspace write merely to
-obtain a review artifact.**
-
-#### Write-enabled tasks (fix, mutation)
-
-```text
-Source mutation policy:     ALLOWED ONLY IN ASSIGNED WORKTREE/SCOPE.
-Artifact transport:         REQUIRED VIA FINAL STDOUT JSON.
-Filesystem staging artifact: INSIDE LAUNCH_CWD.
-Codex launcher write mode:  true (workspace-write)
-```
-
-The staging file is a secondary, redundant channel. The controller copies it out
-only after validation.
-
-#### Reconciliation
-
-```text
-codex_result_valid =
-  terminal_status == success
-  AND stdout_sentinel_present
-  AND stdout_json_schema_valid
-  AND identity_fields_match
-  AND resultCompleteness == complete
-  AND ( staging_artifact_absent
-        OR canonical_hash(staging_json) == canonical_hash(stdout_json) )
-```
-
-| Situation | Outcome |
-|---|---|
-| Both channels present and hashes agree | accept, `transport=stdout+staging` |
-| Only valid stdout | accept, `transport=stdout-only` |
-| Both present, hashes differ | `BLOCKED: artifact-channel-mismatch` — never silently prefer one |
-| Staging file valid, stdout sentinel absent | incomplete; mandatory rerun (section 5.4) |
-| Staging path escapes `LAUNCH_CWD` | rejected; the path claim is untrusted input |
-
-On any non-accept outcome both raw channels are retained under
-`attempts/<attemptId>/diagnostics/` for inspection, and neither is evidence.
-
-### 5.3 Launch receipts and workspace-aware polling
-
-Every launch writes a receipt **before normal polling begins**
-(`schemas/codex-launch-receipt-v1.schema.json`): attempt ID, task ID, task type,
-`launchCwd`, `repoRoot`, worktree head, requested and effective effort, write
-mode, and the staging/canonical artifact paths.
-
-For `status`, `wait`, `result`, `resume`, and `cancel`, **always** use the
-task's recorded `launchCwd` — via the supported `--cwd` argument, with the
-process cwd set to the same directory. Never poll from the main checkout merely
-because the controller lives there. Never invent unsupported flags.
-
-A lookup failure from the wrong cwd is a **polling-context error**, not evidence
-that the job crashed. Recovery order:
-
-1. read the launch receipt;
-2. verify `launchCwd` still exists and belongs to the expected repository;
-3. rerun the companion operation from that exact context;
-4. only if the correct workspace cannot find the task, classify
-   `JOB_RECORD_MISSING`.
-
-Scanning every companion state directory is a bounded
-migration/disaster-recovery fallback (`codex-job.mjs recover`), never normal
-polling.
-
-Record these states distinctly — do **not** collapse them into "Codex failed":
-
-```text
-RUNNING  SUCCESS  FAILED  CANCELLED
-POLLING_CONTEXT_ERROR   the cwd was wrong or the worktree is gone
-JOB_RECORD_MISSING      the right workspace has no such job
-JOB_STALE_PID           marked running behind a dead PID
-JOB_STALLED             running with no log activity past the limit
-```
-
-More than ten minutes with no new log activity is a stall.
-
-### 5.4 Incomplete results — a count is not evidence
-
-A dead or incomplete job can still expose summary telemetry such as
-`blocking=2` or `findings=3`. **A count is not a finding.**
-
-A finding may enter the finding-judge pipeline only when it carries
-complete structured content: `id`, `severity`, `file`, `line`, optional
-`symbol`, a concrete falsifiable `claim`, specific `evidence`, and the
-`headOid` / `baseOid` / `reviewKey` identity that binds it to this review.
-
-A summary count without the underlying content must **not**:
-
-- create blocker tickets;
-- be posted to GitHub;
-- cause a fix task;
-- be treated as zero findings;
-- grant acceptance.
-
-Classify it as:
-
-```text
-REVIEW_INCONCLUSIVE
-reason=missing-structured-result
-```
-
-For a terminal, stale, or dead task with no complete, schema-valid stdout
-artifact:
-
-1. preserve diagnostic logs and the launch receipt;
-2. do **not** resume the incomplete task as the primary recovery path;
-3. launch **one** fresh attempt from a clean exact-base/head worktree, with a
-   new attempt ID, at the effective effort ceiling from preflight;
-4. require the same stdout sentinel contract;
-5. if the fresh attempt is also incomplete, set `BLOCKED: codex-output-incomplete`.
-
-Never invent findings from either attempt. Attempt IDs are checked, so stale
-output from attempt 1 cannot satisfy attempt 2.
-
-A terminal job with `blocking=0` but no complete structured artifact is still
-inconclusive and **cannot approve the PR**.
-
-### 5.5 Using the wrapper
-
-One shared wrapper handles capability normalization, launch-cwd validation,
-receipt creation, same-workspace lifecycle calls, terminal classification,
-sentinel extraction, staging reconciliation, canonical persistence, and the
-compact handoff. Do not duplicate this logic in prompts.
+After the native tool reports completion, validate and atomically publish:
 
 ```bash
-# --effort is the requested (logical) tier; the wrapper normalizes it against
-# the capability artifact and launches the preflight ceiling (max -> xhigh today).
-node "${BABYSIT_SKILL_DIR}/scripts/codex-job.mjs" launch \
-  --receipt   "$ART/attempts/$ATTEMPT/launch-receipt.json" \
-  --capabilities "$RUN/codex-capabilities.json" \
-  --launch-cwd "$WORKTREE" \
-  --task-type review \
-  --model gpt-5.6-sol --effort max \
-  --pr "$PR" --head "$HEAD_OID" --base "$BASE_OID" --review-key "$REVIEW_KEY" \
-  --attempt-id "$ATTEMPT" \
-  --canonical "$ART/codex-review.json" \
-  --prompt-file "$PROMPT"
-
-node "${BABYSIT_SKILL_DIR}/scripts/codex-job.mjs" collect \
-  --receipt     "$ART/attempts/$ATTEMPT/launch-receipt.json" \
-  --diagnostics "$ART/attempts/$ATTEMPT/diagnostics" \
-  --out         "$ART/attempts/$ATTEMPT/collect.json"
+node "${BABYSIT_SKILL_DIR}/scripts/validate-artifact.mjs" \
+  --input "$ART/attempts/$ATTEMPT/result.json" \
+  --expect "$ART/attempts/$ATTEMPT/expected.json" \
+  --status completed \
+  --out "$ART/codex-review.json"
 ```
 
-`collect` exits `0` accepted, `1` not accepted, `3` still running.
+Exit `0` means schema, identity, completeness, and each finding's identity all
+passed. The output includes a canonical JSON SHA-256 and compact counts; full
+findings remain in the file. Exit `1` rejects the result without replacing prior
+canonical evidence. Exit `2` is a usage or I/O error, not acceptance. Run the
+source-clean check for read tasks before allowing judgment or remote writes.
 
-### 5.6 Temporary probes never live in the repository
+Only the controller supplies `--status completed`, after observing native
+completion. A file written by a running or failed task cannot authorize work.
+Hash JSON with `canonicalHash` from `scripts/lib/json-io.mjs`; raw file-byte
+hashes differ when formatting changes.
+
+### 5.4 Incomplete results
+
+Missing, malformed, partial, stale, and count-only outputs are
+`REVIEW_INCONCLUSIVE`, never zero findings. Preserve the assignment and rejected
+result under the attempt directory. Neither diagnostics nor summary counts may
+create a blocker, GitHub comment, fix task, or acceptance.
+
+After confirming the old task has stopped, allow exactly one fresh attempt from
+the exact head/base with a new attempt ID and result path. If that result is
+also incomplete, set `BLOCKED: codex-output-incomplete`. Checkpoints likewise
+get one fresh retry. Never infer success from `blocking=0` alone.
+
+### 5.5 Temporary probes never live in the repository
 
 Any temporary Python, Node, shell, SQL, or data probe written by a judgment or
 verification step goes in a temporary directory, not the repository:
@@ -1257,7 +908,7 @@ unrelated frontend work — and, worse, the spec selector would have bound to
 spec files that arrived from base drift rather than from the PR.
 
 Resolve and record the merge base explicitly, and pass it to every downstream
-consumer (spec selector, Codex review prompt, verifier):
+consumer (spec selector, native review prompt, verifier):
 
 ```bash
 MERGE_BASE="$(git -C "$WORKTREE" merge-base "$BASE_OID" "$HEAD_OID")"
@@ -1275,66 +926,29 @@ reads the branch/title, changed-file list, and candidate spec/plan names to
 select the relevant documents and calculate `specHash`. It must not form
 findings yet.
 
-### 10.3 Codex Sol deep review
+### 10.3 Native deep review
 
-The main controller launches one Codex review task **from the read worktree**
-through `scripts/codex-job.mjs` (section 5.5) — never as a bare `codex exec`
-call without a receipt (section 2):
+Spawn one fresh review subagent, assigned the exact read worktree, three-dot
+range, selected specs, expected identity, and generated artifact contract
+(section 5.2). Forbid source mutation and GitHub writes. Require traceable,
+actionable findings; exclude style nits and spec-sanctioned divergences.
 
-- `--task-type review`
-- `--model gpt-5.6-sol`
-- `--effort max` — normalized at preflight to the companion ceiling
-- **no `--write`**: source mutation policy is FORBIDDEN;
-- **no staging artifact**: the result travels over the stdout sentinel;
-- exact base/head OIDs and the review key are passed and echoed back;
-- relevant spec/plan paths;
-- require traceable, actionable findings only;
-- exclude style nits and spec-sanctioned divergences.
-
-The task's own instructions must state:
-
-```text
-Source mutation policy:  FORBIDDEN.
-Artifact transport:      REQUIRED VIA FINAL STDOUT JSON.
-Filesystem artifact:     NOT REQUIRED.
-
-End your final response with exactly one BABYSIT_PR_ARTIFACT_V1 block, as the
-final structured block, matching schemas/codex-artifact-v1.schema.json. Echo
-attemptId, pr, headOid, baseOid, and reviewKey exactly as given. Every finding
-must carry file, a falsifiable claim, concrete evidence, and the per-finding
-identity fields headOid, baseOid, and reviewKey; pr and attemptId are top-level
-keys only and must never appear inside a finding. severity MUST be exactly one of: blocking, high, medium, low, advisory —
-"non-blocking" is NOT in the enum; use advisory or low for a finding that should
-not gate the merge. Set resultCompleteness to "complete" only if you finished the analysis;
-otherwise set "partial" or "aborted" and say why. Never report a count in place
-of the findings themselves.
-```
-
-`codex-job.mjs launch` appends a schema-derived `ARTIFACT CONTRACT` block to
-every task prompt — the allowed-key lists always come from
-`schemas/codex-artifact-v1.schema.json` itself, so editing the schema cannot
-leave a stale hand-written key list behind in prompts or in this document.
-
-The controller then runs `codex-job.mjs collect`, which reconciles the channels,
-writes `codex-review.json` as `CANONICAL_ARTIFACT`, and returns the compact
-handoff line. On a non-accept outcome apply section 5.4 — one fresh attempt,
-then `BLOCKED: codex-output-incomplete`.
-
-A finding whose claim is essentially "the test does not actually cover this"
-must set `requiresMutationEvidence: true` (section 10.5).
+Validate its completed result with section 5.3 and publish `codex-review.json`.
+An incomplete result follows section 5.4. A claim that a test does not cover the
+behavior must set `requiresMutationEvidence: true` (section 10.5).
 
 For security, authentication, authorization, data integrity, concurrency,
-migration, financial correctness, or resilience/breaker changes, the controller
-may launch **one** additional independent Sol review as `--task-type risk-review`
-into `codex-review-risk.json`. Mechanical changes get one pass.
+migration, financial correctness, or resilience/breaker changes, allow one
+additional fresh `risk-review` subagent into `codex-review-risk.json`.
+Mechanical changes get one pass.
 
 ### 10.4 Fresh finding judge
 
-Run a fresh `finding-judge` checkpoint (section 2; requested `max`, effective
-`xhigh`). Authorize GitHub writes only for its posting step (7 below).
+Run a fresh `finding-judge` checkpoint (section 2). It produces the proposed
+inline findings; the controller owns publication.
 
 Candidates are accepted **only** from an accepted, schema-valid
-`CANONICAL_ARTIFACT`. If reconciliation did not accept, there are no candidates
+`CANONICAL_ARTIFACT`. If validation did not accept, there are no candidates
 — there is an inconclusive review. Count-only telemetry is never a candidate.
 
 The judge is given the exact attempt ID, head/base OIDs, review key, canonical
@@ -1351,9 +965,10 @@ artifact path and its SHA-256, and any mutation-evidence artifact paths. It must
    - `NEEDS_HUMAN`
 5. merge duplicate findings;
 6. write `judgment.json` and `confirmed-findings.json`;
-7. post only surviving actionable findings as GitHub inline review comments;
-8. update the single v2 status comment;
-9. never implement code and never launch nested tasks.
+7. supply only surviving actionable findings with inline locations;
+8. return the compact handoff without implementing code or spawning children.
+
+The controller publishes those findings and updates the single v2 status comment.
 
 Before each GitHub write, recheck current head/base and whether another
 babysitter session already posted the same marker/finding. Stand down on
@@ -1424,9 +1039,7 @@ Every unresolved review thread matters, regardless of author:
 - a human reviewer;
 - another automation.
 
-When unresolved threads exist, run a fresh `thread-judge` checkpoint
-(requested `max`, effective `xhigh`), authorizing GitHub writes only for its
-reply/resolve step. It must:
+When unresolved threads exist, run a fresh `thread-judge` checkpoint. It must:
 
 1. fetch bodies inside its isolated context;
 2. read relevant specs and code paths;
@@ -1438,14 +1051,16 @@ reply/resolve step. It must:
    - `ADVISORY_NON_BLOCKING`
    - `NEEDS_HUMAN`
 4. write `thread-dispositions.json`;
-5. for non-fix dispositions, recheck live state, post a concise
-   evidence-backed reply, then resolve only when conclusive;
+5. for non-fix dispositions, propose a concise evidence-backed reply and
+   indicate whether resolution is conclusive;
 6. leave real findings unresolved until a verified fix commit has been pushed;
 7. never resolve a thread without either:
    - a pushed fixing commit and fix-PR link; or
    - an evidence-backed disposition reply.
 
-A genuine human question remains unresolved when the answer is uncertain.
+The controller rechecks live state, posts accepted replies, and resolves only
+conclusive dispositions. A genuine human question remains unresolved when the
+answer is uncertain.
 
 Batch all real findings for one parent PR into one implementation task.
 
@@ -1480,83 +1095,41 @@ Fix PR requirements:
   and then mark the workflow `BLOCKED` for automatic merge rather than silently
   changing semantics.
 
-### 12.2 Choose implementation lane
+### 12.2 Bounded implementation
 
-Batch every confirmed finding for the parent into one bounded task.
+Batch every confirmed finding for the parent into one native fix task. Assign
+the exact worktree, file scope, finding IDs, constraints, required tests, and
+schema-derived artifact contract. The child inherits the current session's
+model and reasoning configuration.
 
-Use Terra-high when the work is clear and ordinary.
+Allow at most three sequential implementation rounds for ordinary work and two
+for complex or critical work. Critical work includes security/auth/authz, data
+integrity, financial correctness, concurrency, and destructive migrations.
+Each correction consumes the previous fresh verifier's feedback. Exhaustion
+becomes `BLOCKED`; the controller must not bypass independent verification.
 
-Start at Sol-high for complex but noncritical work:
+The fix child must:
 
-- resilience/circuit-breaker logic;
-- subtle performance correctness;
-- complex multi-file behavior;
-- a prior failed Terra implementation round.
+- edit only the assigned worktree and scope;
+- implement all confirmed findings and run meaningful focused checks;
+- leave changes uncommitted; the controller owns commit creation;
+- write its complete result to the assigned attempt's `result.json`;
+- omit `fix.commit` or set it null;
+- return the compact handoff and perform no GitHub writes.
 
-Start directly at Sol-max for critical-risk work:
-
-- security, authentication, or authorization;
-- data integrity or financial correctness;
-- concurrency, races, deadlocks, or ordering invariants;
-- destructive or hard-to-reverse migrations.
-
-Escalation:
-
-```text
-ordinary: Terra high -> Sol high -> Sol max
-complex:  Sol high -> Sol max
-critical: Sol max -> one targeted Sol-max correction
-```
-
-Allow at most three rounds for ordinary work and at most two rounds for complex
-or critical work. Each round is sequential and consumes the previous verifier
-feedback. Exhaustion becomes `BLOCKED`; the main controller must not become an
-emergency code writer.
-
-A fix task is **write-enabled**, launched through `codex-job.mjs` with `--write`
-and a staging artifact path inside `LAUNCH_CWD`:
-
-```text
-Source mutation policy:      ALLOWED ONLY IN ASSIGNED WORKTREE/SCOPE.
-Artifact transport:          REQUIRED VIA FINAL STDOUT JSON.
-Filesystem staging artifact: INSIDE LAUNCH_CWD (e.g. ./fix-result.json).
-```
-
-Codex must:
-
-- modify only the assigned worktree and scope;
-- implement all batched confirmed findings;
-- add/update focused tests;
-- avoid unrelated refactors;
-- run suitable local checks;
-- leave every change **uncommitted** — a linked-worktree sandbox cannot write
-  `.git`, so `git commit` fails there by construction; omit `fix.commit` (or
-  set it null) in the emitted artifact;
-- write the staging `fix-result.json` **inside its launch worktree**;
-- **also** end its final response with the `BABYSIT_PR_ARTIFACT_V1` block, whose
-  content must match the staging file exactly — the two channels are compared by
-  canonical hash, and a mismatch is `BLOCKED: artifact-channel-mismatch`;
-- not push or use GitHub.
-
-The controller reconciles both channels and writes the canonical
-`fix-result.json` under `CANONICAL_RUN_DIR`. A staging file with no stdout
-sentinel is incomplete and triggers the section 5.4 rerun policy; the file alone
-is never sufficient.
-
-The controller — not the Codex task — creates the signed commit
-(`git commit -s`) from the accepted worktree changes, records its OID as
-`fix.commit` in the canonical artifact, and hands that OID to the fresh
-verifier.
+After native completion, the controller validates the result (section 5.3),
+checks the actual changed-file set against the assignment, and creates the
+signed commit (`git commit -s`). Record its exact OID as `fix.commit`, recompute
+the canonical artifact hash, and hand both to a fresh independent verifier.
 
 ### 12.3 Fresh independent verifier
 
-After every implementation round, run a fresh `verifier` checkpoint (requested
-`max`, effective `xhigh`). It must not edit code or launch nested tasks.
+After every implementation round, run a fresh `verifier` checkpoint. It must not edit code or launch nested tasks.
 
 It verifies:
 
 - exact parent head and intended fix base;
-- full diff, not only files named by Codex;
+- full diff, not only files named by the implementer;
 - every confirmed finding closure;
 - no hidden unrelated changes;
 - spec/plan compliance;
@@ -1587,7 +1160,7 @@ Write `verification.json`:
 
 Return only the compact handoff line.
 
-`REJECT` feeds one bounded correction round into the next escalation tier.
+`REJECT` feeds one bounded correction round into a fresh implementation context.
 `BLOCKED` stops that PR pipeline.
 
 ### 12.4 Publish only after acceptance
@@ -1882,10 +1455,9 @@ If `git merge-tree --write-tree` is unsupported, reports a conflict, or yields a
 different tree, do a full review.
 
 For ordinary non-critical changes, run a fresh `composition-verifier`
-checkpoint (`xhigh`). For security, auth/authz, data-integrity, financial,
+checkpoint. For security, auth/authz, data-integrity, financial,
 concurrency, destructive-migration, or otherwise high-risk composition, run
-the `critical-composition-verifier` checkpoint instead (requested `max`,
-effective `xhigh`). The selected checkpoint reads only:
+the `critical-composition-verifier` checkpoint instead. The selected checkpoint reads only:
 
 - prior accepted parent/child artifacts;
 - exact ancestry/tree proof;
@@ -1899,7 +1471,7 @@ on the same immutable evidence. Final composition verdicts are `ACCEPT`,
 
 On `ACCEPT`, compute the new review key, update the status comment, and apply
 the external-review policy to the new head: the round counter resets and
-round 1 is immediately due (section 13.3). On `REVIEW`, run the full Sol review
+round 1 is immediately due (section 13.3). On `REVIEW`, run the full review
 pipeline.
 
 This shortcut applies to any accepted strict child, including a babysitter fix
@@ -1932,7 +1504,7 @@ mergeable == MERGEABLE
 mergeStateStatus has no unresolved branch-protection blocker
 no CHANGES_REQUESTED review
 expected head still current
-no collision or capability blocker
+no collision or native capability blocker
 ```
 
 `READY_ROOT` requires the same gates except `strict_stacked`, and requires no
@@ -1950,7 +1522,7 @@ Default limits:
 
 ```text
 max waves: 8
-max live heavy agents: 4
+max live heavy children: min(4, available runtime slots)
 max live writers: 2
 poll interval: 60 seconds
 external-only no-progress limit: 10 minutes
@@ -1961,13 +1533,12 @@ For each wave:
 1. Snapshot all open non-draft PRs and rebuild the DAG.
 2. Restrict actions to the requested operational scope.
 3. Validate current review keys and states.
-4. Dispatch independent read-only Codex reviews, at most four heavy sub-tasks
-   live.
+4. Dispatch independent source-read-only reviews within the native child limit.
 5. Dispatch the required judgment checkpoints after their input artifacts are
    terminal.
 6. Dispatch thread-disposition checkpoints.
 7. Batch confirmed fixes per parent.
-8. Run Codex fix -> fresh verifier checkpoint sequentially.
+8. Run native fix -> fresh verifier checkpoint sequentially.
 9. Publish accepted fixes and update thread/status state.
 10. Refresh snapshots.
 11. Evaluate deterministic readiness.
@@ -2008,22 +1579,11 @@ The next `babysit-prs-codex` invocation reconstructs external-review state from 
 GitHub status comment plus live comments and reactions, and posts the next
 round as soon as it is due.
 
-For continuous babysitting, run an external loop:
-
-```bash
-while :; do
-  codex exec \
-    --cd /home/chin39/Documents/play/stocks \
-    --sandbox workspace-write \
-    -c sandbox_workspace_write.network_access=true \
-    "use babysit-prs-codex"
-  sleep 1800
-done
-```
-
-Each iteration is a fresh invocation that reconstructs state from GitHub. This
-keeps retrying on the policy cooldown until the bot leaves a fresh pass
-reaction on the PR body.
+For unattended operation, use `runners/babysit-auto/` from this repository.
+Its timer starts a new top-level controller invocation only when the gate
+reports due work. It is separate from the controller's native child lifecycle.
+Without an installed and enabled runner, report the next due time and leave
+retrying to the next manual invocation; never imply a timer exists.
 
 After a process/session restart, discard assumptions and reconstruct state from
 GitHub plus committed artifacts. Salvage valid unpushed commits before deleting
@@ -2123,8 +1683,8 @@ failing the predicate stays untouched and is reported, never force-removed.
 
 ## 20. Dry-run and snapshot-only behavior
 
-With `--snapshot-only` (section 1.1): observe and report only. No Codex task,
-no checkpoint, no worktree, no test, no artifact beyond the four snapshot
+With `--snapshot-only` (section 1.1): observe and report only. No native task,
+no checkpoint, no worktree, no test, no artifact beyond the three snapshot
 files, and no GitHub write. Every action label is prefixed `🔎 SNAPSHOT:`.
 
 With `--dry-run`:
@@ -2132,7 +1692,7 @@ With `--dry-run`:
 - build the complete snapshot and stack graph;
 - compute proposed review keys and states;
 - read existing artifacts;
-- read-only Codex review and local validation are allowed;
+- source-read-only native review and local validation are allowed;
 - evaluate external review and report
   `would trigger <triggerComment> round <N>`;
 - do not post/update comments;
@@ -2188,8 +1748,9 @@ Then explicitly list:
 8. worktrees reclaimed this invocation with their paths, and worktrees retained
    as residual with the `RECLAIMABLE` clause each failed.
 
-When any PR is still `WAITING_CODEX`, remind the user that the external
-30-minute loop of section 17.1 continues the retry loop automatically.
+When any PR is still `WAITING_CODEX`, report its next retry time and whether
+an enabled runner has actually been verified. Otherwise another invocation is
+needed (section 17.1).
 
 Do not include findings prose, diffs, spec excerpts, or long test logs in the
 final report.
@@ -2198,35 +1759,16 @@ final report.
 
 ## 22. Hard rules
 
-- This skill runs under the Codex CLI with a Sol-class `xhigh` controller; it
-  is not a Hermes profile and not the Claude Code skill.
-- Keep the main controller thin: no full diffs, specs, or thread bodies.
-- Critical judgment and final-verification checkpoints request `max` and run at
-  the `xhigh` ceiling; bounded spec-selection and ordinary composition
-  checkpoints run at `xhigh`. They never spawn sub-tasks.
-- The main controller dispatches Codex tasks and checkpoints as sibling
-  operations. Codex tasks go through `scripts/codex-job.mjs`, never as bare
-  `codex exec` calls — a bare call has no receipt, no capability
-  normalization, no launch-cwd validation, and no artifact reconciliation.
-- Deep review is Codex Sol-max; implementation follows risk-aware routing:
-  Terra-high for ordinary work, Sol-high for complex noncritical work, and
-  Sol-max immediately for critical-risk work.
+- The current Codex session owns the workflow; all children use native tools.
+- Keep the main controller thin: detailed review and implementation live in children.
+- Use fresh contexts for review, judgment, and verification. Children do not spawn.
 - An implementer claim is not acceptance. A fresh verifier checkpoint and real
   local gates are required before push.
-- Codex effort is normalized at preflight from a non-executing capability probe.
-  Never launch an unsupported effort and rely on the retry. Never guess an
-  accepted set: an ambiguous probe blocks Codex-dependent remote writes.
-- Every Codex task echoes its result as a final `BABYSIT_PR_ARTIFACT_V1` stdout
-  block. Read-only tasks transport results over stdout only; never grant
-  workspace write merely to obtain an artifact, and never claim a path-scoped
-  sandbox the launcher does not have.
-- Codex never writes outside its `LAUNCH_CWD`. Only the controller writes
-  `CANONICAL_ARTIFACT`, and only after schema, identity, and hash validation.
-- Two artifact channels that disagree are `BLOCKED: artifact-channel-mismatch`.
-  Never silently prefer one.
-- Every launch writes a receipt before polling. Every `status`/`result`/
-  `cancel`/`resume` replays the recorded `launchCwd`. "No job found" from the
-  wrong workspace is a polling-context error, never a crashed job.
+- The controller owns commits and every GitHub write.
+- Assigned paths are scope instructions, not a path-scoped sandbox.
+- Only completed, schema-valid, identity-matching artifacts can be accepted.
+  Native completion must be observed independently of result-file contents.
+
 - A finding count is not a finding. No blocker, GitHub comment, fix task, or
   acceptance may come from summary telemetry, and `blocking=0` without a
   complete artifact never approves a PR.
@@ -2271,5 +1813,5 @@ final report.
   the retry loop.
 - Never deduplicate triggers by deleting comments.
 - `--dry-run` never posts an external-review trigger.
-- `--snapshot-only` dispatches no Codex task, no checkpoint, and no worktree.
+- `--snapshot-only` dispatches no native task, no checkpoint, and no worktree.
   It observes and reports; it never advances a state machine.
