@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { parseMarker } from "../../../runners/babysit-auto/lib/marker.mjs";
+import { parseMarker } from "../scripts/lib/marker.mjs";
 
 const CLI = fileURLToPath(new URL("../scripts/external-review.mjs", import.meta.url));
 const POLICY = fileURLToPath(new URL("./fixtures/policy-stocks.json", import.meta.url));

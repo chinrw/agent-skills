@@ -87,6 +87,9 @@ task results continue using `codex-artifact-v1.schema.json` unchanged.
   when those sources also contributed to the assignment. Its ACCEPT must close
   all confirmed findings, and neither the fix nor verifier may invent closure
   IDs. Conflicting uses of the same ID across judgments are rejected.
+- Verifier ACCEPT cannot bypass an assigned BLOCKED, INCONCLUSIVE or NEEDS_HUMAN
+  judgment, or a NEEDS_HUMAN disposition. Complete verifier REJECT and BLOCKED
+  results remain admissible as non-authorizing evidence.
 - Composition inputs must be admitted ACCEPT checkpoints with the assigned
   parent/child roles. BLOCKED and REVIEW inputs cannot prove prior acceptance.
 - A prior composition's accepted head is newParentHead; its new key is derived

@@ -95,9 +95,15 @@ function inputErrors(artifact, inputs, repo) {
         errors.push(`input-findings-identity-mismatch:${role}`);
         continue;
       }
+      const dispositions = findings.checkpointType === "finding-judge" ? findings.result.findings : findings.result.dispositions;
+      if (artifact.verdict === "ACCEPT" &&
+          (["BLOCKED", "INCONCLUSIVE", "NEEDS_HUMAN"].includes(findings.verdict) ||
+           dispositions.some(row => row.classification === "NEEDS_HUMAN"))) {
+        errors.push(`unresolved-input-judgment:${role}`);
+      }
       const rows = findings.checkpointType === "finding-judge"
-        ? findings.result.findings.filter(row => row.classification.startsWith("CONFIRMED_"))
-        : findings.result.dispositions.filter(row => row.classification === "REAL_FIX_REQUIRED").map(row => row.finding);
+        ? dispositions.filter(row => row.classification.startsWith("CONFIRMED_"))
+        : dispositions.filter(row => row.classification === "REAL_FIX_REQUIRED").map(row => row.finding);
       for (const row of rows) {
         if (!row) { errors.push(`input-thread-finding-missing:${role}`); continue; }
         const hash = canonicalHash(row);

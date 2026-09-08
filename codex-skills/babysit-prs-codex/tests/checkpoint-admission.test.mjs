@@ -251,6 +251,88 @@ test("an admitted thread finding can supply verifier closure evidence", (t) => {
   assert.equal(outcome.code, 0, JSON.stringify(outcome.payload));
 });
 
+test("verifier ACCEPT cannot discard unresolved prerequisite judgments", async (t) => {
+  const cases = [
+    ["findings", "finding-judge", "BLOCKED", ["NEEDS_HUMAN"], []],
+    ["findings", "finding-judge", "INCONCLUSIVE", ["FALSE_POSITIVE"], []],
+    ["riskFindings", "finding-judge", "NEEDS_FIX", ["CONFIRMED_BLOCKING", "NEEDS_HUMAN"], ["R1"]],
+    ["findings", "thread-judge", "BLOCKED", ["ADVISORY_NON_BLOCKING"], []],
+    ["threadFindings", "thread-judge", "NEEDS_HUMAN", ["NEEDS_HUMAN"], []],
+    ["threadFindings", "thread-judge", "NEEDS_FIX", ["REAL_FIX_REQUIRED", "NEEDS_HUMAN"], ["R1"]]
+  ];
+  for (const [role, kind, verdict, classifications, closedFindingIds] of cases) {
+    await t.test(`${role}: ${kind} ${verdict}`, (t) => {
+      const ws = fixture(t);
+      const parentHead = ws.head;
+      const subject = { headOid: parentHead, baseOid: BASE, reviewKey: KEY, specHash: "none" };
+      const publishJudgment = (checkpointType, priorVerdict, classes) => {
+        let inputs;
+        let result;
+        if (checkpointType === "finding-judge") {
+          const review = taskResult("review", parentHead, { findings: classes.map((_, index) => ({
+            id: `R${index + 1}`, severity: "high", file: "source.txt",
+            claim: "Approval intent cannot be established", evidence: "The approval record lacks its intent",
+            headOid: parentHead, baseOid: BASE, reviewKey: KEY
+          })) });
+          const reviewPath = path.join(ws.root, "accepted-review.json");
+          const admittedReview = admit({ ...ws, result: review, output: reviewPath, expected: {
+            taskType: "review", attemptId: review.attemptId, pr: 379,
+            headOid: parentHead, baseOid: BASE, reviewKey: KEY
+          } });
+          assert.equal(admittedReview.code, 0, JSON.stringify(admittedReview.payload));
+          inputs = { review: JSON.parse(fs.readFileSync(reviewPath)) };
+          result = { findings: classes.map((classification, index) => ({
+            id: `R${index + 1}`, classification, reason: "The assigned evidence determines this disposition",
+            file: classification.startsWith("CONFIRMED_") ? "source.txt" : null,
+            line: classification.startsWith("CONFIRMED_") ? 1 : null,
+            comment: classification.startsWith("CONFIRMED_") ? "Handle the failed write" : null
+          })), residualRisk: null };
+        } else {
+          inputs = { threads: classes.map((_, index) => ({ id: `T${index + 1}` })) };
+          result = { dispositions: classes.map((classification, index) => ({
+            threadId: `T${index + 1}`, classification, reason: "The assigned evidence determines this disposition",
+            reply: null, resolve: false,
+            ...(classification === "REAL_FIX_REQUIRED" ? { finding: {
+              id: `R${index + 1}`, file: "source.txt", claim: "The write result is discarded",
+              evidence: "The caller ignores the write result"
+            } } : {})
+          })), residualRisk: null };
+        }
+        assign(ws, checkpointType, subject, inputs, priorVerdict, result);
+        const admitted = admit(ws);
+        assert.equal(admitted.code, 0, JSON.stringify(admitted.payload));
+        assert.equal(admitted.payload.summary.verdict, priorVerdict);
+        return JSON.parse(fs.readFileSync(ws.output));
+      };
+      const prerequisite = publishJudgment(kind, verdict, classifications);
+      const findings = role === "findings" ? prerequisite : publishJudgment("finding-judge", "ACCEPT", []);
+      fs.writeFileSync(path.join(ws.worktree, "source.txt"), "known findings corrected\n");
+      command("git", ["add", "."], ws.worktree);
+      command("git", ["commit", "-qm", "correct known findings"], ws.worktree);
+      const fixCommit = command("git", ["rev-parse", "HEAD"], ws.worktree);
+      const fix = taskResult("fix", parentHead, { fix: { commit: fixCommit, changedFiles: ["source.txt"], closedFindingIds } });
+      assign(ws, "verifier", { parentHead, fixCommit, baseOid: BASE, reviewKey: KEY, specHash: "none" },
+        { fix, findings, ...(role === "findings" ? {} : { [role]: prerequisite }) }, "ACCEPT", {
+          closedFindingIds, blocking: [], changedFiles: ["source.txt"],
+          commands: ["focused check"], results: ["PASS"], residualRisk: null
+        });
+      fs.writeFileSync(ws.output, "previous canonical evidence\n");
+      const rejected = admit(ws);
+      assert.equal(rejected.code, 1, JSON.stringify(rejected.payload));
+      assert.equal(rejected.payload.ok, false);
+      assert.equal(fs.readFileSync(ws.output, "utf8"), "previous canonical evidence\n");
+      for (const outcome of ["REJECT", "BLOCKED"]) {
+        ws.result.verdict = outcome;
+        ws.result.result.blocking = ["A prerequisite decision remains unresolved"];
+        const admitted = admit(ws);
+        assert.equal(admitted.code, 0, JSON.stringify(admitted.payload));
+        assert.equal(admitted.payload.summary.verdict, outcome);
+        assert.deepEqual(JSON.parse(fs.readFileSync(ws.output)), ws.result);
+      }
+    });
+  }
+});
+
 test("a prior composition is identified by its new head and derived key", (t) => {
   const ws = fixture(t);
   const parentKey = computeReviewKey({ repo: "chinrw/stocks", pr: 379, headOid: BASE, baseOid: BASE, specHash: "none" });
