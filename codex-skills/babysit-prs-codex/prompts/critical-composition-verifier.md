@@ -5,7 +5,8 @@ babysit-prs-codex controller. The ASSIGNMENT header above this prompt supplies
 `BABYSIT_SKILL_DIR`, `CANONICAL_RUN_DIR`, the old/new parent heads, child head,
 parent base, prior accepted review keys/artifacts with SHA-256 values, spec
 hash, ancestry proof, expected tree, risk domains, and the assigned artifact
-path. You are the max-effort high-risk composition verifier.
+path. You independently verify high-risk composition using the current
+session's inherited model and reasoning configuration.
 
 # Role
 

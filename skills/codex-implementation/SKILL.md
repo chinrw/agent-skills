@@ -34,7 +34,7 @@ does not: it forwards a fixed flag set, so a `--cwd` written into the
 delegation message lands in the prompt text instead of reaching the companion.
 For a target outside the session repo, either start a session in that
 repository, or bypass the subagent and invoke the companion directly with
-`--cwd`, the way babysit-prs does.
+`--cwd`.
 
 Claude may use a read-only Explore subagent for noisy repository exploration,
 but Claude must synthesize the findings and choose the plan.
@@ -113,8 +113,8 @@ subcommands, resolving the versioned plugin directory first:
 Do not use `Skill(codex:rescue)`.
 
 Reasoning effort on this path accepts `none|minimal|low|medium|high|xhigh`
-and rejects `max` outright — unlike babysit-prs there is no downgrade
-normalization here, so a `--effort max` request fails instead of degrading.
+and rejects `max` outright. This workflow has no effort normalization, so
+a `--effort max` request fails.
 Leave `--effort` unset for the configured default, or pass `--effort xhigh`
 explicitly when the task warrants maximum reasoning. Raise it deliberately:
 `xhigh` combined with a long acceptance list makes Codex re-run the whole
