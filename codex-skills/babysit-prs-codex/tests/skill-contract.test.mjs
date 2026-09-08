@@ -84,7 +84,7 @@ function parseJsonStream(text) {
 test("every shipped JSON Schema parses and only uses supported keywords", () => {
   const dir = path.join(SKILL_DIR, "schemas");
   const files = fs.readdirSync(dir).filter((name) => name.endsWith(".schema.json"));
-  assert.ok(files.length === 2, "result and mutation evidence schemas must be present");
+  assert.deepEqual(files.sort(), ["checkpoint-artifact-v1.schema.json", "codex-artifact-v1.schema.json", "mutation-evidence-v1.schema.json"]);
 
   for (const name of files) {
     const schema = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));

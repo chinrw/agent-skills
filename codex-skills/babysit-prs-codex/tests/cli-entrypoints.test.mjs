@@ -55,6 +55,7 @@ function run(scriptPath, args, options = {}) {
 }
 
 const CLIS = [
+  "external-review.mjs",
   "validate-artifact.mjs",
   "review-key.mjs",
   "mutation-evidence.mjs",
@@ -84,6 +85,7 @@ test("a CLI invoked with no arguments does not silently succeed", () => {
 
   // Each of these requires arguments; none may exit 0 having done nothing.
   for (const [name, args] of [
+    ["external-review.mjs", []],
     ["validate-artifact.mjs", []],
     ["check-source-clean.mjs", []],
     ["mutation-evidence.mjs", []]

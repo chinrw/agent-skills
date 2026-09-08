@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "babysit-prs/checkpoint-artifact-v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "checkpointType",
+    "attemptId",
+    "pr",
+    "subject",
+    "inputs",
+    "resultCompleteness",
+    "verdict",
+    "result"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "checkpointType": {"type": "string"},
+    "attemptId": {"type": "string", "pattern": "^[A-Za-z0-9._-]{6,128}$"},
+    "pr": {"type": "integer", "minimum": 1},
+    "subject": {"type": "object"},
+    "inputs": {"type": "object", "additionalProperties": {"$ref": "#/definitions/hash"}},
+    "resultCompleteness": {"enum": ["complete", "partial", "aborted"]},
+    "verdict": {"type": "string"},
+    "result": {"type": "object"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "checkpointType": {"const": "verifier"},
+        "subject": {"$ref": "#/definitions/fixSubject"},
+        "inputs": {"required": ["fix", "findings"]},
+        "verdict": {"enum": ["ACCEPT", "REJECT", "BLOCKED"]},
+        "result": {"$ref": "#/definitions/verification"}
+      }
+    },
+    {
+      "properties": {
+        "checkpointType": {"const": "spec-selector"},
+        "subject": {"$ref": "#/definitions/specSubject"},
+        "inputs": {"required": []},
+        "verdict": {"enum": ["SELECTED", "NONE", "BLOCKED"]},
+        "result": {"$ref": "#/definitions/selection"}
+      }
+    },
+    {
+      "properties": {
+        "checkpointType": {"const": "finding-judge"},
+        "subject": {"$ref": "#/definitions/reviewSubject"},
+        "inputs": {"required": ["review"]},
+        "verdict": {"enum": ["ACCEPT", "NEEDS_FIX", "BLOCKED", "INCONCLUSIVE"]},
+        "result": {"$ref": "#/definitions/judgment"}
+      }
+    },
+    {
+      "properties": {
+        "checkpointType": {"const": "thread-judge"},
+        "subject": {"$ref": "#/definitions/reviewSubject"},
+        "inputs": {"required": ["threads"]},
+        "verdict": {"enum": ["DISPOSED", "NEEDS_FIX", "NEEDS_HUMAN", "BLOCKED"]},
+        "result": {"$ref": "#/definitions/threadJudgment"}
+      }
+    },
+    {
+      "properties": {
+        "checkpointType": {"const": "composition-verifier"},
+        "subject": {"$ref": "#/definitions/compositionSubject"},
+        "inputs": {"required": ["parent", "child"]},
+        "verdict": {"enum": ["ACCEPT", "REVIEW", "ESCALATE_MAX", "BLOCKED"]},
+        "result": {"$ref": "#/definitions/composition"}
+      }
+    },
+    {
+      "properties": {
+        "checkpointType": {"const": "critical-composition-verifier"},
+        "subject": {"$ref": "#/definitions/compositionSubject"},
+        "inputs": {"required": ["parent", "child"]},
+        "verdict": {"enum": ["ACCEPT", "REVIEW", "BLOCKED"]},
+        "result": {"$ref": "#/definitions/composition"}
+      }
+    }
+  ],
+  "definitions": {
+    "oid": {"type": "string", "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$"},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "specHash": {"anyOf": [{"const": "none"}, {"$ref": "#/definitions/hash"}]},
+    "strings": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "fixSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parentHead", "fixCommit", "baseOid", "reviewKey", "specHash"],
+      "properties": {
+        "parentHead": {"$ref": "#/definitions/oid"},
+        "fixCommit": {"$ref": "#/definitions/oid"},
+        "baseOid": {"$ref": "#/definitions/oid"},
+        "reviewKey": {"$ref": "#/definitions/hash"},
+        "specHash": {"$ref": "#/definitions/specHash"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["closedFindingIds", "blocking", "changedFiles", "commands", "results", "residualRisk"],
+      "properties": {
+        "closedFindingIds": {"$ref": "#/definitions/strings"},
+        "blocking": {"$ref": "#/definitions/strings"},
+        "changedFiles": {"$ref": "#/definitions/strings"},
+        "commands": {"$ref": "#/definitions/strings"},
+        "results": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "residualRisk": {"type": ["string", "null"]}
+      }
+    },
+    "specSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headOid", "baseOid"],
+      "properties": {"headOid": {"$ref": "#/definitions/oid"}, "baseOid": {"$ref": "#/definitions/oid"}}
+    },
+    "reviewSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headOid", "baseOid", "reviewKey", "specHash"],
+      "properties": {
+        "headOid": {"$ref": "#/definitions/oid"},
+        "baseOid": {"$ref": "#/definitions/oid"},
+        "reviewKey": {"$ref": "#/definitions/hash"},
+        "specHash": {"$ref": "#/definitions/specHash"}
+      }
+    },
+    "compositionSubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oldParentHead",
+        "newParentHead",
+        "childHead",
+        "baseOid",
+        "parentReviewKey",
+        "childReviewKey",
+        "specHash"
+      ],
+      "properties": {
+        "oldParentHead": {"$ref": "#/definitions/oid"},
+        "newParentHead": {"$ref": "#/definitions/oid"},
+        "childHead": {"$ref": "#/definitions/oid"},
+        "baseOid": {"$ref": "#/definitions/oid"},
+        "parentReviewKey": {"$ref": "#/definitions/hash"},
+        "childReviewKey": {"$ref": "#/definitions/hash"},
+        "specHash": {"$ref": "#/definitions/specHash"}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["specPaths", "specHash", "reason"],
+      "properties": {
+        "specPaths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "specHash": {"$ref": "#/definitions/specHash"},
+        "reason": {"type": ["string", "null"]}
+      }
+    },
+    "findingDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "classification", "reason", "file", "line", "comment"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "classification": {
+          "enum": ["CONFIRMED_BLOCKING", "CONFIRMED_NON_BLOCKING", "FALSE_POSITIVE", "SPEC_SANCTIONED", "NEEDS_HUMAN"]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "file": {"type": ["string", "null"]},
+        "line": {"type": ["integer", "null"], "minimum": 1},
+        "comment": {"type": ["string", "null"]}
+      }
+    },
+    "judgment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["findings", "residualRisk"],
+      "properties": {
+        "findings": {"type": "array", "items": {"$ref": "#/definitions/findingDisposition"}},
+        "residualRisk": {"type": ["string", "null"]}
+      }
+    },
+    "threadDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "classification", "reason", "reply", "resolve"],
+      "properties": {
+        "threadId": {"type": "string", "minLength": 1},
+        "classification": {
+          "enum": [
+            "REAL_FIX_REQUIRED",
+            "FALSE_POSITIVE",
+            "SPEC_SANCTIONED",
+            "ANSWERED",
+            "ADVISORY_NON_BLOCKING",
+            "NEEDS_HUMAN"
+          ]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "reply": {"type": ["string", "null"]},
+        "resolve": {"type": "boolean"},
+        "finding": {
+          "type": "object",
+          "required": ["id", "file", "claim", "evidence"],
+          "additionalProperties": false,
+          "properties": {
+            "file": {"type": "string", "minLength": 1},
+            "claim": {"type": "string", "minLength": 1},
+            "evidence": {"type": "string", "minLength": 1},
+            "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,32}$"}
+          }
+        }
+      }
+    },
+    "threadJudgment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dispositions", "residualRisk"],
+      "properties": {
+        "dispositions": {"type": "array", "items": {"$ref": "#/definitions/threadDisposition"}},
+        "residualRisk": {"type": ["string", "null"]}
+      }
+    },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence", "checkedInvariants", "blocking", "residualRisk"],
+      "properties": {
+        "evidence": {"$ref": "#/definitions/strings"},
+        "checkedInvariants": {"$ref": "#/definitions/strings"},
+        "blocking": {"$ref": "#/definitions/strings"},
+        "residualRisk": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
