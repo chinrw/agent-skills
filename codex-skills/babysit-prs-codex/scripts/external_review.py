@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Deterministic external-review (Codex) retry state machine for /babysit-prs.
 
-Pure stdlib. No network, no GitHub writes, no side effects. The skill assembles
-an *observation* document from live GitHub state plus the persisted marker
-fields of the single update-in-place babysit status comment, and this module
-returns the next external-review decision.
+Pure stdlib. No network or GitHub writes. The local handoff constructs an
+observation from saved GitHub output and the persisted status marker; this
+module evaluates it and folds confirmed posting receipts into retry state.
 
 The point of this module is that the retry decision is a deterministic
 predicate, not an LLM judgement call. The controller may not override a
@@ -14,6 +13,8 @@ Subcommands:
   evaluate        decide the next external-review action for one PR
   fresh-pass      report the latest configured pass reaction and its freshness
   resolve-policy  print the effective policy after defaults are applied
+  normalize       normalize saved raw responses for the local handoff
+  transition      evaluate an observation and optional posting receipt
 
 Exit codes are 0 for a successful evaluation regardless of the decision, and 2
 for malformed input. A non-zero exit never means "trigger" or "do not trigger".
@@ -26,6 +27,7 @@ import copy
 import json
 import sys
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 POLICY_VERSION = "babysit-prs-external-review-v1"
 
@@ -773,6 +775,143 @@ def apply_posted_trigger(decision, posted_at, policy):
     return _finish(updated)
 
 
+def observation_records(raw, name):
+    pages = load_json_stream(raw)
+    if not pages:
+        raise ValueError(name + " response is empty")
+    records = []
+
+    def walk(value):
+        if not isinstance(value, list):
+            raise ValueError(name + " response must contain arrays")
+        for item in value:
+            if isinstance(item, list):
+                walk(item)
+            elif isinstance(item, dict):
+                records.append(item)
+            else:
+                raise ValueError(name + " response has an invalid record")
+
+    for page in pages:
+        walk(page)
+    return records
+
+
+def normalize_sources(bundle):
+    """Normalize saved gh output; missing pages are not an empty observation."""
+    raw = bundle["sources"]
+    pr = json.loads(raw["pr"])
+    base = json.loads(raw["base"])
+    if pr.get("number") != bundle["pr"]:
+        raise ValueError("PR number does not match the assignment")
+    for field in ("state", "isDraft", "headRefOid", "commits", "reviews"):
+        if field not in pr:
+            raise ValueError("PR observation missing " + field)
+    if not pr["commits"] or not base.get("object", {}).get("sha"):
+        raise ValueError("head commit or base ref is missing")
+    comments = observation_records(raw["comments"], "comments")
+    reactions = observation_records(raw["reactions"], "reactions")
+    if any(not isinstance(comment.get("body"), str) or
+           parse_ts(comment.get("created_at") or comment.get("createdAt")) is None
+           for comment in comments):
+        raise ValueError("issue comment body or timestamp is missing")
+    if any(not isinstance(reaction.get("content"), str) or
+           parse_ts(reaction.get("created_at") or reaction.get("createdAt")) is None
+           for reaction in reactions):
+        raise ValueError("reaction content or timestamp is missing")
+    threads = []
+    pages = flatten_objects(load_json_stream(raw["threads"]))
+    for page in pages:
+        if page.get("errors"):
+            raise ValueError("GraphQL thread observation contains errors")
+        connection = page["data"]["repository"]["pullRequest"]["reviewThreads"]
+        threads.extend(connection["nodes"])
+    if not pages or connection.get("pageInfo", {}).get("hasNextPage") is not False:
+        raise ValueError("thread pagination is incomplete")
+    unresolved = []
+    activity = []
+    policy = resolve_policy(bundle["policy"])
+    for row in comments + reactions:
+        author = row.get("author") or row.get("user") or {}
+        if login_matches(author.get("login"), policy.get("botLogin")):
+            activity.append({"login": author["login"], "at": row.get("createdAt") or row.get("created_at")})
+    if not isinstance(pr["reviews"], list):
+        raise ValueError("PR reviews must be an array")
+    for review in pr["reviews"]:
+        author = review.get("author") or {}
+        if review.get("state") != "PENDING" and login_matches(author.get("login"), policy.get("botLogin")):
+            if parse_ts(review.get("submittedAt")) is None:
+                raise ValueError("submitted bot review has no timestamp")
+            activity.append({"login": author["login"], "at": review["submittedAt"]})
+    for thread in threads:
+        if "isResolved" not in thread:
+            raise ValueError("thread resolution state is missing")
+        first = (thread.get("comments", {}).get("nodes") or [{}])[0]
+        if not thread["isResolved"]:
+            if not first.get("author", {}).get("login"):
+                raise ValueError("unresolved thread author is missing")
+            unresolved.append({"id": thread["id"], "author": first["author"]})
+        if login_matches((first.get("author") or {}).get("login"), policy.get("botLogin")):
+            activity.append({"author": first["author"], "at": first.get("createdAt")})
+    return {
+        "repo": bundle["repo"], "pr": bundle["pr"], "now": bundle["now"],
+        "prState": pr["state"], "isDraft": pr["isDraft"], "prClass": bundle["prClass"],
+        "head": {"oid": pr["headRefOid"], "committedDate": pr["commits"][-1]["committedDate"]},
+        "base": {"oid": base["object"]["sha"]}, "expected": bundle["expected"],
+        "policy": bundle["policy"], "comments": comments, "reactions": reactions,
+        "unresolvedCodexThreads": unresolved, "botActivity": activity,
+        "roundsThisInvocation": bundle.get("roundsThisInvocation", 0),
+        "dryRun": bundle.get("dryRun", False),
+        "dispositionCompletedAt": bundle.get("dispositionCompletedAt"), "persisted": {}
+    }
+
+
+def transition(observation, posted=None):
+    """Fold confirmed write evidence, then derive the next decision from it."""
+    observation = copy.deepcopy(observation)
+    if any(observation[part]["oid"] != observation["expected"][field]
+           for part, field in (("head", "headOid"), ("base", "baseOid"))):
+        decision = _finish(_decision(
+            codexHeadOid=observation["head"]["oid"], codexState=S_BLOCKED_SNAPSHOT_STALE,
+            action=A_STAND_DOWN, requiresResnapshot=True, reasons=["handoff snapshot identity changed"]
+        ))
+        return {"observation": observation, "decision": decision}
+    decision = evaluate(observation)
+    if not posted:
+        return {"observation": observation, "decision": decision}
+    if posted.get("status") != "confirmed":
+        decision.update(action=A_STAND_DOWN, requiresResnapshot=True,
+                        message="posting outcome is unconfirmed; refresh GitHub observations")
+        return {"observation": observation, "decision": decision}
+    if observation.get("dryRun"):
+        raise ValueError("a dry run cannot consume a posting receipt")
+    if posted.get("headOid") != observation["head"]["oid"] or posted.get("baseOid") != observation["base"]["oid"]:
+        raise ValueError("posting receipt belongs to another head/base")
+    receipt = posted["receipt"]
+    policy = resolve_policy(observation["policy"])
+    expected_path = "/repos/%s/issues/%s" % (observation["repo"], observation["pr"])
+    if urlsplit(receipt.get("issue_url", "")).path != expected_path:
+        raise ValueError("posting receipt belongs to another PR")
+    if type(receipt.get("id")) is not int or receipt["id"] <= 0:
+        raise ValueError("posting receipt has no comment id")
+    if receipt.get("body", "").strip() != str(policy["triggerComment"]).strip():
+        raise ValueError("posting receipt is not the configured trigger")
+    posted_at = receipt.get("created_at") or receipt.get("createdAt")
+    if parse_ts(posted_at) is None:
+        raise ValueError("posting receipt has no timestamp")
+    if parse_ts(posted_at) < parse_ts(observation["head"]["committedDate"]):
+        raise ValueError("posting receipt predates the observed head")
+    if parse_ts(posted_at) > parse_ts(observation["now"]):
+        raise ValueError("refresh observation.now after receiving the posting receipt")
+    seen = any(row.get("id") == receipt["id"] for row in observation["comments"])
+    if not seen:
+        if decision["action"] == A_POST_TRIGGER:
+            applied = apply_posted_trigger(decision, posted_at, policy)
+            observation["persisted"] = {key: value for key, value in applied.items() if key.startswith("codex")}
+        observation["comments"].append(receipt)
+    return {"observation": observation, "decision": evaluate(observation)}
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -851,10 +990,16 @@ def main(argv=None):
     p_policy.add_argument("--input", help="repo-local policy JSON file")
     p_policy.set_defaults(func=cmd_resolve_policy)
 
+    for name, handler in (("normalize", normalize_sources),
+                          ("transition", lambda data: transition(data["observation"], data.get("postedTrigger")))):
+        command = sub.add_parser(name, help="local handoff adapter")
+        command.add_argument("--input", default="-")
+        command.set_defaults(func=lambda args, handler=handler: print(json.dumps(handler(_load_observation(args.input)))))
+
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (ValueError, json.JSONDecodeError) as exc:
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         sys.stderr.write("external_review: %s\n" % exc)
         return 2
 

@@ -1,5 +1,11 @@
 # Checkpoint: finding-judge — babysit-prs-codex
 
+Read `${BABYSIT_SKILL_DIR}/references/checkpoint-contract.md` before writing
+the result. Use its versioned envelope, echo the assigned subject and input
+hashes, and put this checkpoint's content inside `result`. The controller
+observes completion and performs mechanical admission; your verdict remains
+independent of whether the file is admitted.
+
 You are a fresh, independent checkpoint context dispatched by the
 babysit-prs-codex controller. The ASSIGNMENT header above this prompt supplies
 `BABYSIT_SKILL_DIR`, `CANONICAL_RUN_DIR`, the exact attempt ID, head/base OIDs,
@@ -54,7 +60,8 @@ nothing — refute freely.
    - `FALSE_POSITIVE`
    - `SPEC_SANCTIONED`
    - `NEEDS_HUMAN`
-8. Write detailed judgment and confirmed-finding artifacts.
+8. Write one judgment envelope containing every finding disposition. The
+   controller derives confirmed findings from its admitted `result.findings`.
 9. Include proposed inline locations and comment bodies in the artifact.
    The controller rechecks live state and publishes accepted findings.
 

@@ -104,8 +104,8 @@ Under `--snapshot-only`, do **not**:
 - dispatch any judgment or verification checkpoint;
 - create, modify, or remove a worktree;
 - run project tests, builds, or servers;
-- write any run artifact except `snapshot.json`, `external-review-observation.json`,
-  and `external-review-decision.json`;
+- write any run artifact except `snapshot.json`, saved observation JSON files
+  under `observations/`, and `external-review-handoff.json`;
 - perform any GitHub write of any kind.
 
 A PR whose evidence is missing is reported as the state it actually holds —
@@ -170,7 +170,8 @@ Use the runtime's native spawn, message, wait, and stop/close tools. Start a
 fresh context for every review and checkpoint (`fork_turns="none"` when that
 option exists). Supply a self-contained assignment with:
 
-- PR, exact head/base OIDs, merge base, spec paths/hash, and review key;
+- Repository, PR, exact role-specific OIDs and merge base; include spec/hash
+  and review key only after selection establishes them;
 - an absolute worktree path and an explicit source-mutation scope;
 - attempt ID, expected identity file, and assigned output paths;
 - required checks and the relevant prompt file;
@@ -194,11 +195,11 @@ from section 5. Checkpoints write their assigned JSON and return the compact
 handoff of section 3. If a checkpoint fails, retry once in a fresh context;
 a second failure is `BLOCKED: checkpoint-failed:<name>`.
 
-Assign checkpoint outputs under the attempt directory. After native completion,
-the controller checks the fields and verdict required by its prompt and pipeline
-section, verifies the assigned PR/commit identity and source cleanliness, then
-publishes the accepted artifact and its canonical hash. A compact handoff alone
-cannot authorize a fix, thread resolution, or acceptance.
+Assign checkpoint outputs under the attempt directory. Use the normalized
+checkpoint envelope and the same acceptance CLI as task results. Read
+[references/checkpoint-contract.md](references/checkpoint-contract.md) when
+assigning or accepting a checkpoint; it defines subject roles, required inputs,
+canonical filenames, and the distinction between admission and an ACCEPT verdict.
 
 ### Concurrency and filesystem scope
 
@@ -251,14 +252,14 @@ pr-<N>/
   codex-review.json
   codex-review-risk.json
   judgment.json
-  confirmed-findings.json
+  judgment-risk.json
   thread-dispositions.json
   fix-result.json
   verification.json
   composition-verification.json
   mutation-evidence/<findingId>.json
-  external-review-observation.json
-  external-review-decision.json
+  observations/<source>.json
+  external-review-handoff.json
   state.json
   attempts/<attemptId>/
     assignment.json       controller-owned identity, scope, paths, native agent ID
@@ -276,7 +277,7 @@ the path; prompt text cannot grant filesystem access.
 Detailed results stay on disk. Children return a compact handoff; the controller
 validates files mechanically before promoting them to canonical artifacts.
 
-`external-review-decision.json` is the run-artifact half of the external-review
+`external-review-handoff.json` is the run-artifact half of the external-review
 state; the GitHub status comment is the durable half. Neither is the sole truth:
 after any restart, re-derive both from live GitHub state.
 
@@ -964,11 +965,15 @@ artifact path and its SHA-256, and any mutation-evidence artifact paths. It must
    - `SPEC_SANCTIONED`
    - `NEEDS_HUMAN`
 5. merge duplicate findings;
-6. write `judgment.json` and `confirmed-findings.json`;
+6. write the assigned checkpoint envelope with every disposition in
+   `result.findings`;
 7. supply only surviving actionable findings with inline locations;
 8. return the compact handoff without implementing code or spawning children.
 
-The controller publishes those findings and updates the single v2 status comment.
+The controller admits the result as `judgment.json`, publishes the surviving
+findings, and updates the single v2 status comment. Judge a risk-review artifact
+separately as `judgment-risk.json`; include both admitted judgments in the fix
+assignment. Confirmed IDs must be unambiguous across the judgments.
 
 Before each GitHub write, recheck current head/base and whether another
 babysitter session already posted the same marker/finding. Stand down on
@@ -1141,22 +1146,11 @@ It verifies:
 - no `bun run build`;
 - no server unless indispensable.
 
-Write `verification.json`:
-
-```json
-{
-  "pr": 123,
-  "parentHead": "...",
-  "fixCommit": "...",
-  "verdict": "ACCEPT",
-  "closedFindingIds": ["R1"],
-  "blocking": [],
-  "changedFiles": ["..."],
-  "commands": ["..."],
-  "results": ["..."],
-  "residualRisk": "..."
-}
-```
+Write the verifier envelope of
+[references/checkpoint-contract.md](references/checkpoint-contract.md).
+The controller admits it as `verification.json`; parentHead and fixCommit live
+in `subject`, while closure, blockers and test results live in `result`. A
+mechanically valid REJECT is correction evidence and never authorizes publishing.
 
 Return only the compact handoff line.
 
@@ -1220,29 +1214,10 @@ None of the following is a pass:
 A pass is **fresh** only when its `created_at` is at or after the current head's
 last commit `committedDate`.
 
-Read the PR-body reactions with pagination and canonical variables:
-
-```bash
-gh api --paginate \
-  -H 'Accept: application/vnd.github+json' \
-  "repos/$REPO/issues/$PR/reactions" > "$ART/reactions.json"
-
-gh pr view "$PR" --repo "$REPO" --json commits \
-  --jq '.commits[-1].committedDate' > "$ART/head-committed-date.txt"
-```
-
-Then evaluate deterministically (this also handles multi-page output, and folds
-`login[bot]` against the GraphQL `login` form):
-
-```bash
-python3 "${BABYSIT_SKILL_DIR}/scripts/external_review.py" fresh-pass \
-  --policy "$REPO_CHECKOUT/.claude/babysit-prs.json" \
-  --reactions "$ART/reactions.json" \
-  --head-committed-date "$(cat "$ART/head-committed-date.txt")"
-```
-
-Always quote a `botLogin` containing `[bot]`; never interpolate it unquoted
-into a `--jq` filter.
+Collect complete raw GitHub responses and run the local handoff described in
+[references/external-review-handoff.md](references/external-review-handoff.md).
+It preserves pagination, normalizes bot identity, and uses the existing evaluator.
+Always quote a bot login containing `[bot]` when using shell tools.
 
 ### 13.2 The `trigger_due` predicate
 
@@ -1261,17 +1236,18 @@ trigger_due =
       cooldown window
 ```
 
-Do not evaluate this by hand. Build the observation document from the snapshot
-and live GitHub state, then run:
+Do not evaluate this by hand. Use the local handoff manifest and saved raw
+observations (reference above):
 
 ```bash
-python3 "${BABYSIT_SKILL_DIR}/scripts/external_review.py" evaluate \
-  --input "$ART/external-review-observation.json" \
-  --policy "$REPO_CHECKOUT/.claude/babysit-prs.json"
+node "${BABYSIT_SKILL_DIR}/scripts/external-review.mjs" \
+  --input "$ART/observations/input.json" \
+  --out "$ART/external-review-handoff.json"
 ```
 
-The decision carries `action`, `codexState`, `codexRound`,
-`codexNextTriggerAt`, `externalReviewSatisfied`, and human-readable `reasons`.
+The output's `decision` carries `action`, `codexState`, `codexRound`,
+`codexNextTriggerAt`, `externalReviewSatisfied`, and `reasons`. A null marker or
+`requiresResnapshot=true` forbids publication until observations are refreshed.
 The controller may not override a decision; it may only re-observe and
 re-evaluate. Allowed `codexState` values:
 
@@ -1291,33 +1267,20 @@ POLICY_INVALID
 
 ### 13.3 Round accounting
 
-On first entry to a new head:
-
-```text
-codexRound = 0
-codexNextTriggerAt = now
-```
-
-so round 1 fires immediately. After a trigger is successfully posted:
-
-```text
-codexRound += 1
-codexLastTriggerAt = comment.createdAt
-codexNextTriggerAt = codexLastTriggerAt + retry.intervalSeconds
-codexState = TRIGGER_IN_FLIGHT, then WAITING_RETRY once the bot responds
-```
+A new head starts at round zero with round one immediately due. After an
+actual successful post, supply its confirmed receipt to the handoff. The module
+folds the comment's creation time into persisted state and derives the next
+retry time; the controller does not increment counters or invent timestamps.
+Unknown or failed write outcomes require refreshed observations and no marker.
 
 An existing current-head trigger **suppresses posting only until
 `codexNextTriggerAt`**. It is not a permanent one-shot key. A head that has
 already been triggered once and stayed silent for a full cooldown is due for the
 next round, and the round after that, indefinitely.
 
-When every bot finding has been disposed and the head did not change:
-
-```text
-codexLastDispositionCompletedAt = now
-codexNextTriggerAt = max(now, codexLastTriggerAt + retry.minCollisionDelaySeconds)
-```
+When every bot finding has been disposed and the head did not change, supply
+the confirmed `dispositionCompletedAt` in the handoff manifest. The module
+applies the policy's collision delay and derives the retry timestamp.
 
 This re-reviews as soon as possible rather than waiting out the full cooldown,
 while still keeping a short window so two sessions cannot double-post. A pure
@@ -1341,7 +1304,7 @@ Immediately before the write, re-query live state and confirm:
 - `codexLastTriggerAt` / `codexRound` in the status comment;
 - no other babysitter session triggered inside the cooldown window.
 
-Re-run `evaluate` on this refreshed observation. If it no longer returns
+Rerun the handoff on these refreshed observations. If its decision no longer returns
 `POST_TRIGGER` — because a pass landed, the head moved, or another session got
 there first — abandon the write and adopt the returned live state. When another
 session triggered inside the cooldown, this session stands down.
@@ -1684,8 +1647,8 @@ failing the predicate stays untouched and is reported, never force-removed.
 ## 20. Dry-run and snapshot-only behavior
 
 With `--snapshot-only` (section 1.1): observe and report only. No native task,
-no checkpoint, no worktree, no test, no artifact beyond the three snapshot
-files, and no GitHub write. Every action label is prefixed `🔎 SNAPSHOT:`.
+no checkpoint, no worktree, no test, no artifact beyond snapshot and
+external-review observation/handoff files, and no GitHub write. Every action label is prefixed `🔎 SNAPSHOT:`.
 
 With `--dry-run`:
 

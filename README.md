@@ -15,10 +15,11 @@ The skill includes its own scripts, schemas, tests, and checkpoint prompts.
 | Helper | Responsibility |
 |---|---|
 | `review-key.mjs` | Review identity and legacy-marker classification |
-| `validate-artifact.mjs` | Schema-derived task contracts, identity/completeness validation, and atomic publication |
+| `validate-artifact.mjs` | Task/checkpoint admission, assigned input and source checks, and canonical publication |
 | `mutation-evidence.mjs` | Focused mutation experiments for test-coverage claims |
 | `check-source-clean.mjs` | Source cleanliness and temporary-probe checks |
-| `external_review.py` | External-review policy and retry state machine |
+| `external-review.mjs` | Local observation, receipt, retry-state and marker handoff |
+| `external_review.py` | Deterministic external-review policy used by the handoff |
 
 Existing `.claude/babysit-prs.json`, run directories, worktrees, and v2 GitHub
 markers remain compatible. Those paths hold state; Claude Code is no longer
