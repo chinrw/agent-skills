@@ -1,22 +1,5 @@
-/**
- * "Was this module run directly?" — symlink-safe.
- *
- * The obvious spelling is broken:
- *
- *     path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
- *
- * `path.resolve` does not resolve symlinks, but Node resolves `import.meta.url`
- * to the module's REAL path. So when the skill is installed as a symlink —
- * `~/.claude/skills/babysit-prs -> ~/Documents/play/skills/skills/babysit-prs` —
- * the two sides never match, `main()` never runs, and the CLI exits 0 having
- * done nothing at all.
- *
- * A silent success is the worst possible failure here: a caller that shells out
- * to `review-key.mjs classify` and switches on the exit code would read that 0
- * as "marker is current" and grant acceptance it never verified.
- *
- * Compare realpaths on both sides.
- */
+// Installed skill paths are symlinks; compare realpaths so a CLI cannot
+// silently exit zero without running its entrypoint.
 
 import { realpathSync } from "node:fs";
 import path from "node:path";

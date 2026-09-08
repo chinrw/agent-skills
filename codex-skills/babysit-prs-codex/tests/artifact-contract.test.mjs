@@ -15,7 +15,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { renderArtifactContract, withArtifactContract } from "../scripts/codex-job.mjs";
+import { renderArtifactContract } from "../scripts/validate-artifact.mjs";
 import { validate } from "../scripts/lib/schema.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -60,21 +60,6 @@ test("a fix task additionally gets the fix nesting and the no-commit rule", () =
   assert.ok(!/Do NOT run git commit/.test(renderArtifactContract("review")));
 });
 
-test("withArtifactContract appends the contract exactly once, after the prompt", () => {
-  const out = withArtifactContract("Do the review.", "review");
-  assert.ok(out.startsWith("Do the review."));
-  const matches = out.match(/ARTIFACT CONTRACT/g) ?? [];
-  assert.equal(matches.length, 1);
-});
-
-test("launch() routes every prompt through withArtifactContract", () => {
-  // The call-site is load-bearing: without it the same-source guarantee decays
-  // back into hand-written prompt prose. Pinned the same way SKILL.md prose
-  // rules are pinned in skill-contract.test.mjs.
-  const source = fs.readFileSync(path.join(HERE, "..", "scripts", "codex-job.mjs"), "utf8");
-  assert.ok(/args\.push\(withArtifactContract\(prompt, taskType\)\)/.test(source));
-});
-
 /* ------------------------- schema: optional commit ------------------------ */
 
 function fixArtifact(fix) {
@@ -92,7 +77,7 @@ function fixArtifact(fix) {
   };
 }
 
-test("a fix artifact without fix.commit validates (sandbox cannot commit)", () => {
+test("a fix artifact without fix.commit validates (the controller owns the commit)", () => {
   const errors = validate(SCHEMA, fixArtifact({ changedFiles: ["a.rs"], closedFindingIds: ["R1"] }));
   assert.deepEqual(errors, []);
 });

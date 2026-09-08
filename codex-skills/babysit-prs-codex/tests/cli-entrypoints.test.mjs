@@ -2,7 +2,7 @@
  * Every helper must work when invoked as a CLI *through a symlink*.
  *
  * This suite exists because of a real bug. The skill is installed as
- * `~/.claude/skills/babysit-prs -> ~/Documents/play/skills/skills/babysit-prs`,
+ * `~/.agents/skills/babysit-prs-codex -> <checkout>/codex-skills/babysit-prs-codex`,
  * and the original main-guard compared `path.resolve(process.argv[1])` with
  * `path.resolve(fileURLToPath(import.meta.url))`. `path.resolve` does not follow
  * symlinks but Node resolves `import.meta.url` to the real path, so through the
@@ -55,11 +55,8 @@ function run(scriptPath, args, options = {}) {
 }
 
 const CLIS = [
+  "validate-artifact.mjs",
   "review-key.mjs",
-  "probe-codex-capabilities.mjs",
-  "parse-codex-artifact.mjs",
-  "reconcile-codex-artifacts.mjs",
-  "codex-job.mjs",
   "mutation-evidence.mjs",
   "check-source-clean.mjs"
 ];
@@ -87,9 +84,7 @@ test("a CLI invoked with no arguments does not silently succeed", () => {
 
   // Each of these requires arguments; none may exit 0 having done nothing.
   for (const [name, args] of [
-    ["parse-codex-artifact.mjs", []],
-    ["reconcile-codex-artifacts.mjs", []],
-    ["codex-job.mjs", []],
+    ["validate-artifact.mjs", []],
     ["check-source-clean.mjs", []],
     ["mutation-evidence.mjs", []]
   ]) {
@@ -160,67 +155,6 @@ test("review-key.mjs classify exit codes are meaningful through the symlink", ()
 
   // The three outcomes must be distinguishable by exit code alone.
   assert.equal(new Set([current.status, legacy.status, unknown.status]).size, 3);
-
-  fs.rmSync(ws.root, { recursive: true, force: true });
-});
-
-test("probe-codex-capabilities.mjs writes its artifact through the symlink", () => {
-  const ws = linkedSkill();
-  const out = path.join(ws.root, "caps.json");
-
-  const result = run(path.join(ws.link, "scripts", "probe-codex-capabilities.mjs"), [
-    "probe",
-    "--companion", path.join(ws.link, "tests", "fixtures", "companions", "no-max.mjs"),
-    "--no-codex-version",
-    "--out", out
-  ]);
-
-  assert.equal(result.status, 0);
-  assert.ok(fs.existsSync(out), "the capability artifact must actually be written");
-  const artifact = JSON.parse(fs.readFileSync(out, "utf8"));
-  assert.equal(artifact.effortCeiling, "xhigh");
-  assert.equal(artifact.ambiguous, false);
-
-  // An ambiguous probe must exit 3 so a caller can block on it.
-  const ambiguous = run(path.join(ws.link, "scripts", "probe-codex-capabilities.mjs"), [
-    "probe",
-    "--companion", path.join(ws.link, "tests", "fixtures", "companions", "disagree.mjs"),
-    "--no-codex-version"
-  ]);
-  assert.equal(ambiguous.status, 3, "an ambiguous probe must not exit 0");
-
-  fs.rmSync(ws.root, { recursive: true, force: true });
-});
-
-test("parse-codex-artifact.mjs distinguishes accept from reject by exit code", () => {
-  const ws = linkedSkill();
-  const cli = path.join(ws.link, "scripts", "parse-codex-artifact.mjs");
-
-  const good = {
-    schemaVersion: 1,
-    taskType: "review",
-    attemptId: "att-0123456789abcdef01",
-    pr: 379,
-    headOid: HEAD,
-    baseOid: BASE,
-    reviewKey: KEY,
-    resultCompleteness: "complete",
-    findings: []
-  };
-
-  const stdoutFile = path.join(ws.root, "stdout.txt");
-  fs.writeFileSync(
-    stdoutFile,
-    `Done.\n\nBABYSIT_PR_ARTIFACT_V1\n\`\`\`json\n${JSON.stringify(good, null, 2)}\n\`\`\`\n`
-  );
-  assert.equal(run(cli, ["--stdout", stdoutFile]).status, 0);
-
-  // Count-only telemetry: no sentinel at all.
-  const countOnly = path.join(ws.root, "count-only.txt");
-  fs.writeFileSync(countOnly, "Review interrupted.\nblocking=2\nfindings=3\n");
-  const rejected = run(cli, ["--stdout", countOnly]);
-  assert.equal(rejected.status, 1, "count-only output must exit non-zero");
-  assert.match(rejected.stdout, /stdout-sentinel-missing/);
 
   fs.rmSync(ws.root, { recursive: true, force: true });
 });

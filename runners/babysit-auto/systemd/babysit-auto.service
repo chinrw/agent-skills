@@ -10,6 +10,7 @@ Documentation=file:%h/Documents/play/agent-skills/runners/babysit-auto/README.md
 Type=oneshot
 WorkingDirectory=%h/Documents/play/stocks
 Environment=BABYSIT_RUNNER=%h/Documents/play/agent-skills/runners/babysit-auto
+Environment=PATH=%h/.nix-profile/bin:/run/current-system/sw/bin
 
 # Nothing due, or a run already active -> the unit is skipped cleanly.
 # ExecCondition treats exit 1..254 as "skip", which covers the gate's 10 (idle)
@@ -22,6 +23,7 @@ ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs du
 # The gate treats anything it cannot decide as due, so a skill whose marker or
 # state contract moved gets pushed toward running and lands right here.
 ExecStartPre=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs contract
+ExecStartPre=/run/current-system/sw/bin/mkdir -p %h/.claude/babysit-prs
 
 # flock guards timer-against-timer; the gate's busy check above (exit 13,
 # treated as skip) guards against a person driving /babysit-prs at a terminal,
@@ -33,7 +35,7 @@ ExecStartPre=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs con
 # cannot reclassify, so a bounded run would be reported as a failure forever.
 ExecStart=/run/current-system/sw/bin/flock -n -E 75 %h/.claude/babysit-prs/timer.lock \
     /run/current-system/sw/bin/timeout --signal=INT 3300 \
-    %h/.nix-profile/bin/claude -p /babysit-prs
+    /run/current-system/sw/bin/bash ${BABYSIT_RUNNER}/run-controller.sh
 
 # 124: the wall-clock budget expired. 75: a previous tick still holds the lock.
 # Both are ordinary outcomes — every PR's state lives in its GitHub status

@@ -9,7 +9,7 @@ and the assigned composition artifact path.
 # Role
 
 Determine whether an already accepted parent plus an already accepted strict
-child can receive a new review key after merge without a full Sol review.
+child can receive a new review key after merge without a full review.
 This is a narrow composition proof, not a general PR review.
 
 # Required proof
@@ -56,7 +56,7 @@ node "${BABYSIT_SKILL_DIR}/scripts/check-source-clean.mjs" --worktree "$WORKTREE
 
 - Do not edit, implement, push, comment, resolve, or merge — GitHub writes are
   always forbidden for this checkpoint.
-- Do not launch Codex tasks or nested `codex exec` runs.
+- Return to the controller after this assignment; do not spawn children.
 - Do not substitute a broad review when the shortcut proof fails.
 - Do not paste detailed diffs or logs into your final message.
 - Do not reconstruct the review-key payload by hand.

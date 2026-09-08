@@ -54,7 +54,7 @@ node "${BABYSIT_SKILL_DIR}/scripts/check-source-clean.mjs" --worktree "$WORKTREE
 
 - Do not form, validate, or post findings.
 - Do not edit code or documentation.
-- Do not launch Codex tasks or nested `codex exec` runs.
+- Return to the controller after this assignment; do not spawn children.
 - Do not push, comment, resolve, or merge — GitHub writes are always forbidden
   for this checkpoint, regardless of the assignment header.
 - Do not paste spec contents into your final message.

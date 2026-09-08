@@ -14,7 +14,7 @@ import {
 import { parseMarker } from "../lib/marker.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_MD = fs.readFileSync(path.join(HERE, "..", "..", "..", "skills", "babysit-prs", "SKILL.md"), "utf8");
+const SKILL_MD = fs.readFileSync(path.join(HERE, "..", "..", "..", "codex-skills", "babysit-prs-codex", "SKILL.md"), "utf8");
 
 // This is the guard that makes a separate runner safe: the runner reads state
 // the skill publishes, and nothing at runtime would notice if that shape moved.

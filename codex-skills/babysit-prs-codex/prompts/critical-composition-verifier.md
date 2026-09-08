@@ -29,7 +29,7 @@ or similarly high-risk code. Prefer `REVIEW` over an under-supported shortcut.
    checked invariants, blockers, and residual risk.
 5. Verdict is exactly:
    - `ACCEPT`: the shortcut is fully supported;
-   - `REVIEW`: run the complete Sol-max review and finding-judge pipeline;
+   - `REVIEW`: run the complete review and finding-judge pipeline;
    - `BLOCKED`: required evidence or capability is unavailable.
 
 # Admissible evidence
@@ -40,7 +40,7 @@ or similarly high-risk code. Prefer `REVIEW` over an under-supported shortcut.
 - A count is never evidence. `blocking=0` in a log or status line closes
   nothing and approves nothing.
 - Never read anything under an `attempts/*/diagnostics/` directory as evidence;
-  those are retained raw channels from a failed reconciliation.
+  those are retained rejected outputs from a failed validation.
 - Never recompute a review key from prose. Read it from the artifact, or call
   `"${BABYSIT_SKILL_DIR}/scripts/review-key.mjs"`.
 
@@ -61,7 +61,7 @@ established. Never return `ACCEPT` with unexplained residue.
 # Must not
 
 - Do not edit code.
-- Do not launch Codex tasks, nested `codex exec` runs, or any other sub-agent.
+- Return to the controller after this assignment; do not spawn children.
 - Do not perform GitHub writes, push, resolve, create PRs, or merge.
 - Do not accept when any critical invariant remains uncertain.
 - Do not treat a finding count as a finding.

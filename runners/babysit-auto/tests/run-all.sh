@@ -12,14 +12,14 @@ node --test "tests/*.test.mjs"
 
 echo
 echo "== shell: wrapper syntax =="
-for script in systemd/*.sh; do
+for script in ./*.sh systemd/*.sh; do
   [ -e "$script" ] || continue
   bash -n "$script" && echo "ok  $script"
 done
 
 echo
 echo "== contract: the installed skill, if there is one =="
-if [ -f "${CLAUDE_SKILL_DIR:-$HOME/.claude/skills/babysit-prs}/SKILL.md" ]; then
+if [ -f "${BABYSIT_SKILL_DIR:-$HOME/.agents/skills/babysit-prs-codex}/SKILL.md" ]; then
   node tick-gate.mjs contract
 else
   echo "skip: no installed skill to check"

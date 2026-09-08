@@ -1,103 +1,44 @@
 # babysit-auto
 
-Unattended runtime for `/babysit-prs`. It adds no review capability; it supplies
-the discipline a timer-driven run needs and the skill does not have: decide
-whether anything is due before paying for a model turn, keep two runs from
-colliding, bound the wall clock, and fail loudly when its assumptions stop
-holding.
+A local timer for `babysit-prs-codex`. The gate reads PR markers and live state
+before starting a model session. When work is due, `run-controller.sh` starts
+one top-level Codex controller; reviews and checkpoints use native subagents
+inside that session.
 
-`skills/babysit-prs/` is not modified by any of this. The skill is driven as a
-black box, and the only coupling is the state it already publishes in each PR's
-status comment.
-
-## Why a runner and not a reviewer
-
-`chatgpt-codex-connector[bot]` is already the reviewer, and it is already
-webhook-driven. `/babysit-prs` is the conductor that drives that bot, judges its
-verdict, and advances the stack. So the thing missing was never review quality —
-it was the operational envelope that every merge bot converges on:
-
-| | |
-|---|---|
-| idempotent writes | the skill's v2 marker, already there |
-| state in the forge, not the runner | the status comment, already there |
-| single-flight | `flock` for timer against timer; the gate's busy check for timer against a person |
-| conditional work | `tick-gate.mjs due` |
-| bounded runs | `timeout(1)` inside the unit |
-| loud failure | `ExecStartPre` contract check, `OnFailure` |
-
-Webhook or CI-job triggering — the two normal ways to do this — are unavailable
-here: `SKILL.md` depends on the local Codex plugin, local worktrees and local
-credentials, none of which exist in a GitHub runner. Polling is forced, so the
-gate exists to make polling cheap.
-
-## Layout
-
-```
-tick-gate.mjs          due / lock / contract
-lib/marker.mjs         the v2 status-comment marker
-lib/contract.mjs       what this runner assumes about the skill, pinned
-systemd/               one timer, one oneshot service
-tests/run-all.sh
-```
-
-## The gate
+## Gate and controller
 
 ```bash
 node tick-gate.mjs due --repo chinrw/stocks
-#   0  work is due, one reason per PR on stdout
-#  10  nothing due, earliest codexNextTriggerAt printed
-#  13  a run is already active on this checkout; stand down
-#   2  error
+# 0 due, 10 idle, 13 an interactive run is active, 2 error
+node tick-gate.mjs contract
+# 0 compatible, 12 skill contract missing or changed
 ```
 
-Before any GitHub call the gate asks whether `/babysit-prs` is already running
-on the checkout (cwd, or `--checkout`). The skill has no lock of its own, so
-this is what keeps a tick from running beside a person at a terminal. Two
-signals, either one counts:
+The default skill path is `~/.agents/skills/babysit-prs-codex`, overridable with
+`BABYSIT_SKILL_DIR` or `contract --skill-dir`. The contract check pins the v2
+marker template and the 14 states in SKILL.md section 9.
 
-- a live process whose cwd is under `.claude/worktrees/` — review and fix
-  attempts run there and can go a long time without writing anywhere else;
-- anything under `.claude/babysit-prs/runs/` written in the last 30 minutes
-  (`--busy-window-seconds`) — the controller writes there between attempts.
+The due gate detects missing or stale markers, head/base changes, unfinished
+pipeline work, due external-review retries, and CI transitions. Base drift
+uses the branch tip. `READY_ROOT`, `BLOCKED`, and `MERGED` remain parked until
+fresh evidence arrives. A missing retry clock in `WAITING_CODEX` is due.
 
-A false busy delays one tick; a false idle is a collision, so the window is
-generous and the walk trusts no directory mtime. What it cannot see: a
-controller that has neither written nor spawned for 30 minutes. Two runs would
-then interleave, which is the mode the skill is built for anyway — every PR's
-state lives in its status comment, and each run re-derives from there.
+Before querying GitHub, the gate checks for a live process under the checkout's
+`.claude/worktrees/` or a file written under `.claude/babysit-prs/runs/` in the
+last 30 minutes. `--checkout` and `--busy-window-seconds` override the defaults.
+These state paths are retained for existing runs and policy files.
 
-Due when: a PR has no current marker, its head or base moved, its state is
-mid-pipeline, its `codexNextTriggerAt` has come due, or CI settled under
-`WAITING_CI`. Not due for `READY_ROOT`, `BLOCKED` and `MERGED` unless fresh
-evidence arrives.
-
-Anything it cannot decide is reported due. A false "due" wastes one run; a false
-"idle" stalls every PR silently, which is the failure this exists to prevent.
-That bias also covers a gap the skill would otherwise need a code change for: a
-PR left in `WAITING_CODEX` with no retry clock is picked up on the next tick
-rather than dropping out of reach.
-
-Base drift compares against the branch ref, never GraphQL `baseRefOid` — that
-field reports the merge base, which would mark every stacked PR as changed
-forever.
-
-## Contract drift
-
-The runner reads state the skill publishes, and nothing at runtime would notice
-if that shape moved. So the marker template and the state list are pinned in
-`lib/contract.mjs` and checked:
-
-```bash
-node tick-gate.mjs contract     # 0 ok, 12 drifted
-```
-
-`tests/contract.test.mjs` pins them against `skills/babysit-prs/SKILL.md` in this
-repo, so a change to the skill breaks the test suite rather than the runner at
-3am. The unit runs the same check as `ExecStartPre`, where a failure marks the
-unit failed and fires `OnFailure`.
+The controller starts with `workspace-write`, network access, automatic
+approval review, and `model_reasoning_effort="xhigh"`. Its `effort=xhigh`
+attestation matches that explicit configuration. The model comes from the
+operator's Codex configuration. Native child tools, authenticated `gh`, and
+write access to the checkout/run paths are required. No sandbox bypass is used.
 
 ## Install
+
+The example service expects this checkout at
+`~/Documents/play/agent-skills`, stocks at `~/Documents/play/stocks`, and Codex
+on the configured service PATH. The CLI must support `--approve-for-me`.
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -106,58 +47,47 @@ systemctl --user daemon-reload
 systemctl --user enable --now babysit-auto.timer
 ```
 
-On a Nix-managed machine these belong in the home-manager config instead,
-alongside the existing `stocks-*-update` units, so they survive a rebuild. The
-unit points at the git checkout rather than the Nix store, so the runner can be
-iterated without a flake update; the skill it drives still comes from the store.
+On Nix-managed hosts, update the corresponding Home Manager unit and the
+`agent-skills` flake input instead. Editing these examples does not update an
+already deployed service or its installed skill. Confirm both point at the
+native version before enabling the timer.
 
-Verified unit behaviour, measured rather than assumed (systemd 261; a skipped
-`ExecCondition` is `Result=exec-condition`, which `is-failed` reports as
-`inactive` and `OnFailure` ignores):
+The timer checks every five minutes with jitter. The unit holds `flock` during
+the controller run and bounds it with `timeout --signal=INT 3300`.
 
-| case | Result | ActiveState |
-|---|---|---|
-| gate exits 10 (idle) or 13 (busy) | exec-condition (skipped, not failed) | inactive |
-| contract check fails | exit-code | **failed** |
-| lock held by previous tick (`flock -E 75`) | success | inactive |
-| wall clock expired (`timeout` → 124) | success | inactive |
+| Event | Unit outcome |
+|---|---|
+| Gate exits 10 or 13 | Skipped, `Result=exec-condition` |
+| Skill contract check fails | Failed |
+| Lock is already held | Success via exit 75 |
+| Controller reaches its wall-clock budget | Success via exit 124 |
+| Controller exits with another failure | Failed |
 
-`SuccessExitStatus=SIGTERM` does **not** cover a systemd `TimeoutStartSec` kill —
-systemd records that as `Result=timeout`, which `SuccessExitStatus` cannot
-reclassify. Hence `timeout(1)` inside the unit.
-
-## Watch it
+`timeout(1)` supplies exit 124; a systemd `TimeoutStartSec` kill remains a unit
+failure. Process cleanup applies to the service's control group.
 
 ```bash
 systemctl --user list-timers babysit-auto.timer
 journalctl --user -u babysit-auto.service -f
-node tick-gate.mjs due --repo chinrw/stocks --json | jq
+node tick-gate.mjs due --repo chinrw/stocks --json
 ```
 
-## Known gaps
+## Verification and limits
 
-- **Spec drift is invisible to the gate.** `specHash` is computed by the
-  `babysit-pr-spec-selector` agent, so a spec document edited while no PR head
-  moves will not wake the timer.
-- **No notifier is wired.** `OnFailure=` in the service is a commented-out hook.
-- **Nothing sweeps its own residue.** `<checkout>/.claude/babysit-prs/runs/` is
-  per-session, and review worktrees under `.claude/worktrees/` outlive the PRs
-  they were cut for. A 2026-09-03 sweep of the manual-era backlog found 31 run
-  directories (24 older than a week, 15MB) and 22 worktrees, 8 of which belonged
-  to already-merged PRs. Manual operation accumulates this over months; a
-  five-minute timer gets up to 288 chances a day.
-- **A fix can be built and never delivered.** That same sweep found two complete
-  fixes with tests, committed locally at 06:40 by run `76de33f7` and never
-  pushed, on PRs that were still open. The run had committed each tree and then
-  compacted before its verifier step; the continuation session started #538
-  over from review, unaware the fix existed. #535's was re-derived by that
-  session and landed as PR #570; #538's was recovered from the dangling object
-  and pushed as PR #571. This is the failure the gate cannot see: the skill's
-  own state machine reads such PRs as needing work, but nothing notices that a
-  run produced a commit and dropped it.
-- **The skill's `allowed-tools` frontmatter is narrower than what it runs.** A
-  live `--snapshot-only` run executed `sed`, `grep` and `echo`, none of which
-  match its declared patterns. Any attempt to run this under a tightened
-  permission profile has to reconcile that first.
-- **Only `--snapshot-only` has been exercised end to end headless.** A full
-  unattended run that pushes, comments and merges has not been observed yet.
+```bash
+BABYSIT_SKILL_DIR="$PWD/../../codex-skills/babysit-prs-codex" bash tests/run-all.sh
+```
+
+Tests use PR fixtures, a real local process for busy detection, and a fake
+Codex binary to check controller arguments and failure propagation. They also
+validate the marker/state contract against the in-repo Codex skill.
+
+- The native controller has not been exercised end to end against live PRs.
+  Publishing, thread resolution, and merging remain unverified in unattended use.
+- Busy detection is heuristic. A controller with no recent artifact write or
+  worktree process can be missed; two manual invocations do not share `flock`.
+- A gate error exiting 2 is also skipped by `ExecCondition`; no notifier is wired.
+- Spec-only drift does not wake the gate until another signal changes.
+- The gate cannot identify fixes committed locally but never pushed. The skill
+  must recover such work before discarding residual worktrees.
+- Native child concurrency is bounded per invocation, not across the host.

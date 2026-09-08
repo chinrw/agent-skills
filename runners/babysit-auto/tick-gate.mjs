@@ -28,7 +28,7 @@ import { parseMarker } from "./lib/marker.mjs";
 import { verifyContract } from "./lib/contract.mjs";
 
 const DEFAULT_LOCK = path.join(os.homedir(), ".claude", "babysit-prs", "run.lock");
-const DEFAULT_SKILL_DIR = path.join(os.homedir(), ".claude", "skills", "babysit-prs");
+const DEFAULT_SKILL_DIR = process.env.BABYSIT_SKILL_DIR ?? path.join(os.homedir(), ".agents", "skills", "babysit-prs-codex");
 const DEFAULT_STALE_SECONDS = 900;
 
 /** States that mean the pipeline has unfinished work and must be re-entered. */

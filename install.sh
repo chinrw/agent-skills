@@ -93,8 +93,6 @@ case "$MODE" in
       [ -n "$file" ] || continue
       backup_then_link "$file" "$CLAUDE_DIR/agents/$(basename "$file")"
     done < <(agent_files)
-    echo
-    echo "Verify discovery with:  /babysit-prs --snapshot-only"
     ;;
   *)
     echo "usage: $0 [--check|--unlink]" >&2

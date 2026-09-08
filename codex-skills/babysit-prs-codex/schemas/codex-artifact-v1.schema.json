@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "babysit-prs/codex-artifact-v1",
   "title": "Codex task result artifact (v1)",
-  "description": "The machine-readable block every Codex task must emit as its final stdout structured block, under the BABYSIT_PR_ARTIFACT_V1 sentinel. Also the shape of the staging file a write-enabled task may leave inside its launch cwd, and of the canonical artifact the controller persists.",
+  "description": "A native task's assigned result file and the canonical evidence published by the controller after completion, schema, and identity checks.",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -12,9 +12,14 @@
     "headOid",
     "baseOid",
     "reviewKey",
-    "resultCompleteness"
+    "resultCompleteness",
+    "findings"
   ],
   "additionalProperties": false,
+  "anyOf": [
+    { "properties": { "taskType": { "const": "fix" } }, "required": ["fix"] },
+    { "properties": { "taskType": { "enum": ["review", "risk-review", "mutation", "diagnosis"] } } }
+  ],
   "properties": {
     "schemaVersion": { "const": 1 },
     "taskType": {
@@ -109,7 +114,7 @@
       "properties": {
         "commit": {
           "anyOf": [{ "$ref": "#/definitions/oid" }, { "type": "null" }],
-          "description": "The signed fix commit OID. Optional/null in the task-emitted artifact: a linked-worktree sandbox cannot write .git, so the controller creates the signed commit after collect and records its OID here in the canonical artifact."
+          "description": "The signed fix commit OID. The native task leaves this absent or null; the controller creates the commit after validation and records its OID in the canonical artifact."
         },
         "changedFiles": {
           "type": "array",
