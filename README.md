@@ -2,6 +2,21 @@
 
 Version-controlled agent skills and a local PR automation runner.
 
+## context-bundle
+
+[`codex-skills/context-bundle/SKILL.md`](codex-skills/context-bundle/SKILL.md)
+packages the current task for another agent as one ZIP. It includes the needed
+non-public material and a single `HANDOFF.md` with task state, next actions,
+source provenance, public references, and explicit gaps. A Python standard-library
+helper adds a SHA-256 manifest and verifies the archived bytes.
+
+Example request: `Use $context-bundle to package this conversation for another agent.`
+This checkout contains the skill source; `install.sh` does not install it.
+
+```bash
+python3 -m unittest discover -s codex-skills/context-bundle/tests -v
+```
+
 ## babysit-prs-codex
 
 [`codex-skills/babysit-prs-codex/SKILL.md`](codex-skills/babysit-prs-codex/SKILL.md)
