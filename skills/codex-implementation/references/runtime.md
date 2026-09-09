@@ -42,6 +42,13 @@ The companion runs tasks at the Git root, even when its cwd is a subdirectory.
 Assignments must account for that actual writable root; paths in a prompt do
 not expand sandbox permissions or prevent access to adjacent files.
 
+Source identity includes separate staged/unstaged diffs and semantic index
+entries, including conflict stages. Index cache-byte changes alone are not
+source changes. Older snapshots without these fields require new evidence.
+Unchanged status/result queries preserve settlement and acceptance. Contrary
+lifecycle, source, or collected-result evidence clears current acceptance and
+retains the old settlement under `priorSettlement` for reconciliation.
+
 A workspace lock covers helper-managed attempts. The preflight also inspects
 companion jobs across sessions. Neither protects against actors bypassing this
 workflow; the controller must establish absence of other writers. Do not remove

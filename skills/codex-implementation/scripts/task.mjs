@@ -39,6 +39,9 @@ function snapshot(cwd) {
     });
   return { head: git(cwd, "rev-parse", "HEAD"),
     diff: hash(execFileSync("git", ["-C", cwd, "diff", "HEAD", "--binary"])),
+    index: hash(execFileSync("git", ["-C", cwd, "ls-files", "--stage", "-z"])),
+    staged: hash(execFileSync("git", ["-C", cwd, "diff", "--cached", "--binary"])),
+    unstaged: hash(execFileSync("git", ["-C", cwd, "diff", "--binary"])),
     status: git(cwd, "status", "--porcelain=v1", "--untracked-files=all"), untracked };
 }
 function command(identity, args, { allSessions = false } = {}) {
@@ -67,6 +70,14 @@ function sameSnapshot(left, right) { return JSON.stringify(left) === JSON.string
 function assertJob(identity, state, job) {
   if (!job || job.id !== state.jobId || job.workspaceRoot !== identity.workspaceRoot) throw new Error("job identity mismatch");
   if (state.threadId && job.threadId && state.threadId !== job.threadId) throw new Error("thread identity mismatch");
+}
+function invalidate(state, reason) {
+  if (state.settled || state.complete) {
+    state.priorSettlement = { status: state.status, settled: state.settled, complete: state.complete,
+      terminalTurn: state.terminalTurn, snapshot: state.snapshot, resultHash: state.resultHash };
+  }
+  Object.assign(state, { status: state.priorSettlement ? "needs-reconciliation" : "unknown",
+    settled: false, complete: false, terminalTurn: false, error: reason });
 }
 function release(identity) {
   if (identity.lock && fs.existsSync(identity.lock) && fs.readFileSync(identity.lock, "utf8") === identity.attempt) fs.unlinkSync(identity.lock);
@@ -155,7 +166,11 @@ export function operate(action, attempt) {
     if (observation.workspaceRoot !== identity.workspaceRoot) throw new Error("workspace identity mismatch");
     assertJob(identity, state, observation.job);
     write(path.join(attempt, "status.json"), observation);
-    Object.assign(state, { status: observation.job.status, threadId: observation.job.threadId ?? state.threadId, settled: false, terminalTurn: false });
+    if (state.settled && (observation.job.status !== state.status ||
+        !sameSnapshot(state.snapshot, snapshot(identity.workspaceRoot)))) {
+      throw new Error("observation contradicts the settled lifecycle or source snapshot");
+    }
+    Object.assign(state, { status: observation.job.status, threadId: observation.job.threadId ?? state.threadId });
     delete state.error;
     update(attempt, state);
     if (action === "status") return state;
@@ -163,7 +178,7 @@ export function operate(action, attempt) {
       const receipt = command(identity, ["cancel", state.jobId]);
       write(path.join(attempt, "cancel.json"), receipt);
       if (receipt.jobId !== state.jobId) throw new Error("cancel identity mismatch");
-      state.status = "cancel-requested";
+      Object.assign(state, { status: "cancel-requested", settled: false, complete: false, terminalTurn: false });
       update(attempt, state);
       return state;
     }
@@ -174,9 +189,10 @@ export function operate(action, attempt) {
     assertJob(identity, state, result.storedJob);
     if (result.storedJob.status !== state.status || result.job.status !== state.status) throw new Error("terminal status mismatch");
     if (!state.threadId || result.storedJob.threadId !== state.threadId) throw new Error("terminal thread identity is missing or changed");
-    write(path.join(attempt, "result.json"), result);
     const after = snapshot(identity.workspaceRoot);
     if (!sameSnapshot(before, after)) throw new Error("source changed while collecting the result");
+    const resultHash = hash(JSON.stringify(result));
+    if (state.settled && state.resultHash !== resultHash) throw new Error("collected result contradicts settlement");
     state.snapshot = after;
     // A cancellation receipt or a caught launcher error does not prove the
     // server-side turn ended. Preserve evidence without releasing its lock.
@@ -184,10 +200,12 @@ export function operate(action, attempt) {
     if (state.terminalTurn && (state.status === "completed") !== (result.storedJob.result.status === 0)) {
       throw new Error("job and returned turn outcome disagree");
     }
+    write(path.join(attempt, "result.json"), result);
+    state.resultHash = resultHash;
     update(attempt, state);
     return state;
   } catch (error) {
-    Object.assign(state, { status: "unknown", settled: false, error: error.message });
+    invalidate(state, error.message);
     update(attempt, state);
     throw error;
   }
