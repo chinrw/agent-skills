@@ -16,7 +16,10 @@ node tick-gate.mjs contract
 
 The default skill path is `~/.agents/skills/babysit-prs-codex`, overridable with
 `BABYSIT_SKILL_DIR` or `contract --skill-dir`. The contract check pins the v2
-marker template and the 14 states in SKILL.md section 9.
+marker template and the 14 states in the shared workflow's section 9. It reads
+the entrypoint's `references/workflow.md`, while retaining support for older
+installations that inline the contract in SKILL.md. Both native entrypoints
+publish the same contract; this check does not select the controller runtime.
 
 The due gate detects missing or stale markers, head/base changes, unfinished
 pipeline work, due external-review retries, and CI transitions. Base drift
@@ -29,8 +32,8 @@ last 30 minutes. `--checkout` and `--busy-window-seconds` override the defaults.
 These state paths are retained for existing runs and policy files.
 
 The controller starts with `workspace-write`, network access, automatic
-approval review, and `model_reasoning_effort="xhigh"`. Its `effort=xhigh`
-attestation matches that explicit configuration. The model comes from the
+approval review, and `model_reasoning_effort="xhigh"`. No operator effort
+attestation is required. The model comes from the
 operator's Codex configuration. Native child tools, authenticated `gh`, and
 write access to the checkout/run paths are required. No sandbox bypass is used.
 
@@ -53,8 +56,11 @@ flake input and switch Home Manager for the installed Codex skill. A manually
 copied systemd unit needs a separate replacement and daemon reload; a unit
 managed by Home Manager needs its declarative source updated instead.
 
-Retired `~/.claude/skills/babysit-prs` and `~/.claude/agents/babysit-pr-*.md`
-links also need a migration decision. The current shell-config activation
+An existing `~/.claude/skills/babysit-prs` link must point to the new Claude
+native entrypoint before use. Its shared resources must resolve within the same
+snapshot; installing the Codex skill alone does not update a Claude link.
+Retired `~/.claude/agents/babysit-pr-*.md` links are unnecessary for either native
+entrypoint. The current shell-config activation
 only prunes dead links into the current input store path, and returns early
 when a source directory is absent. Valid links into an older Nix snapshot
 therefore survive a flake update. Inspect their targets before removing any;
@@ -62,7 +68,9 @@ the repository's `install.sh --unlink` cannot enumerate deleted entries.
 
 Before enabling the native timer, verify the installed skill content and the
 unit's actual `ExecStart`. `tick-gate.mjs contract` checks only markers and
-states; it cannot distinguish the retired runtime from the native one.
+states; it cannot distinguish the retired runtime from the native one. This
+runner still starts Codex. A unit starting `claude -p /babysit-prs` instead runs
+whichever Claude entrypoint that host has installed.
 
 ```bash
 readlink -f ~/.agents/skills/babysit-prs-codex
@@ -106,7 +114,7 @@ Tests use PR fixtures, a real local process for busy detection, and a fake
 Codex binary to check controller arguments and failure propagation. They also
 validate the marker/state contract against the in-repo Codex skill.
 
-- The native controller has not been exercised end to end against live PRs.
+- Neither native entrypoint has been exercised end to end against live PRs.
   Publishing, thread resolution, and merging remain unverified in unattended use.
 - Busy detection is heuristic. A controller with no recent artifact write or
   worktree process can be missed; two manual invocations do not share `flock`.

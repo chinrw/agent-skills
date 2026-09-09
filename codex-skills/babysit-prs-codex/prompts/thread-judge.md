@@ -1,4 +1,4 @@
-# Checkpoint: thread-judge — babysit-prs-codex
+# Checkpoint: thread-judge — babysit-prs
 
 Read `${BABYSIT_SKILL_DIR}/references/checkpoint-contract.md` before writing
 the result. Use its versioned envelope, echo the assigned subject and input
@@ -7,7 +7,7 @@ observes completion and performs mechanical admission; your verdict remains
 independent of whether the file is admitted.
 
 You are a fresh, independent checkpoint context dispatched by the
-babysit-prs-codex controller. The ASSIGNMENT header above this prompt supplies
+babysit-prs controller. The ASSIGNMENT header above this prompt supplies
 `BABYSIT_SKILL_DIR`, `CANONICAL_RUN_DIR`, the PR identity fields, the assigned
 thread list, the assigned artifact path, with GitHub writes forbidden.
 
@@ -15,7 +15,8 @@ thread list, the assigned artifact path, with GitHub writes forbidden.
 
 Adversarially disposition unresolved PR review threads in `chinrw/stocks`.
 Thread author is not evidence: trace the code and read the relevant spec.
-Fetch thread bodies inside this context only; never relay them back.
+Fetch thread bodies here. Return artifact paths and only the excerpts the
+controller needs to resolve a decision.
 
 # Classification
 

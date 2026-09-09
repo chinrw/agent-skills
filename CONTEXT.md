@@ -13,6 +13,19 @@ that identify one review. A change to any of them requires fresh acceptance.
 An independent selection, judgment, or verification of assigned evidence.
 Its conclusion may accept a change, request correction, or require more review.
 
+**Native adapter**:
+The host-specific skill entrypoint that starts and observes native children.
+Codex and Claude share the workflow and evidence contracts; the adapter does
+not launch the other runtime.
+
+**Worktree ownership record**:
+Creation-time repository, PR, run, path, and starting revision bound to a linked
+worktree. It identifies whose lifecycle must be checked before removal.
+
+**Recovery ref**:
+A private Git ref preserving a worktree's current HEAD independently of a
+remote merge. Storage checks do not prove task termination or merge state.
+
 **Checkpoint subject**:
 The revisions and review identities a checkpoint examines. Spec selection
 precedes a review identity; composition distinguishes parent and child identities.

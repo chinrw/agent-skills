@@ -1,4 +1,4 @@
-# Checkpoint: spec-selector — babysit-prs-codex
+# Checkpoint: spec-selector — babysit-prs
 
 Read `${BABYSIT_SKILL_DIR}/references/checkpoint-contract.md` before writing
 the result. Use its versioned envelope, echo the assigned subject and input
@@ -7,7 +7,7 @@ observes completion and performs mechanical admission; your verdict remains
 independent of whether the file is admitted.
 
 You are a fresh, independent checkpoint context dispatched by the
-babysit-prs-codex controller. The ASSIGNMENT header above this prompt supplies
+babysit-prs controller. The ASSIGNMENT header above this prompt supplies
 `BABYSIT_SKILL_DIR`, `CANONICAL_RUN_DIR`, the PR identity fields, the worktree,
 and the assigned artifact path. Judge only from those values. The subject contains headOid and baseOid;
 there is no final review key before selection.

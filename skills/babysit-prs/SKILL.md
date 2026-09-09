@@ -1,27 +1,34 @@
 ---
-name: babysit-prs-codex
+name: babysit-prs
 description: >-
-  Prepare chinrw/stocks PRs for merging with native Codex subagents and
+  Prepare chinrw/stocks PRs for merging with native Claude Code subagents and
   automatically merge eligible strict stacked PRs. Explicit invocation only.
 disable-model-invocation: true
 ---
 
-# PR babysitting in Codex
+# PR babysitting in Claude Code
 
-Run the controller in the current Codex session. Use the native spawn, message,
-wait, and stop/close tools available in this session. Reviews and checkpoints
-start with `fork_turns="none"` when that option exists; supply the full assignment
-and checkpoint prompt instead of inheriting the controller's conversation.
+Run the controller in the current Claude Code session. Use the native `Agent`
+tool with a fresh, non-fork subagent, such as `general-purpose`, for each review,
+fix, and checkpoint. Supply the full assignment and checkpoint prompt. Keep
+this controller in the main conversation; a `context: fork` skill or conversation
+fork does not provide the independent checkpoint context this workflow needs.
 
 Use the session's configured model and reasoning settings, respecting explicit
-user choices and runtime overrides. Record observed settings when exposed, or
-`unknown` otherwise. No effort attestation is required.
+user choices and runtime overrides. Do not assume built-in exploration agents
+use that model. Record observed settings when exposed, or `unknown` otherwise.
+No effort attestation is required.
 
-Record the returned native agent ID and use it for lifecycle operations. Wait
-for native completion before accepting artifacts. Before retrying or releasing
-a writer's worktree, confirm the old child and its processes have terminated.
-If the necessary native capability is missing, block that assignment and keep
-snapshot-only available. All children remain siblings of this controller.
+Record the returned agent/task ID. Use native completion notifications or the
+available output/wait tool to collect its terminal result, and the native stop
+tool when cancellation is needed. Use the same ID for every lifecycle call;
+never infer completion from a file, silence, or a success claim in a summary.
+A completed child can leave processes behind: collect those before releasing a
+writer's worktree. If termination is unobservable, block that assignment rather
+than start another writer. All children remain siblings of this controller.
+
+This entrypoint uses Claude's native children. It shares the core resources
+below with the Codex entrypoint and requires no cross-runtime job launcher.
 
 ## Shared workflow
 

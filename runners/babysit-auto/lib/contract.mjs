@@ -1,22 +1,15 @@
-/**
- * What this runner assumes about `/babysit-prs`, pinned and checkable.
- *
- * The runner deliberately does not modify the skill; it drives it as a black
- * box and reads the state it publishes. That only works while both sides agree
- * on two things: the shape of the status-comment marker, and the set of states
- * that marker can carry. Neither is versioned, and a change to either is
- * invisible at runtime — the gate would keep parsing, keep deciding, and keep
- * being wrong.
- *
- * So the assumptions live here as literals, and `verifyContract` checks them
- * against the installed SKILL.md. Drift is reported loudly rather than absorbed.
- */
+import fs from "node:fs";
+import path from "node:path";
 
-/** SKILL.md section 8, the marker template line, verbatim. */
+// Marker syntax and state names are pinned because drift can make the timer
+// repeatedly dispatch already completed work. Check the loaded workflow before
+// starting a controller; older installations carry it inline in SKILL.md.
+
+/** Shared workflow section 8, the marker template line, verbatim. */
 export const PINNED_MARKER_TEMPLATE =
   "<!-- babysit-prs:v2 pr=<N> head=<HEAD> base=<BASE> spec=<SPEC_HASH> key=<REVIEW_KEY> state=<STATE> codex=<CODEX_STATE> codexRound=<N> codexNextTriggerAt=<UTC-ISO-8601> -->";
 
-/** SKILL.md section 9, "Use only these states". */
+/** Shared workflow section 9, "Use only these states". */
 export const PINNED_STATES = [
   "DISCOVERED",
   "NEEDS_REVIEW",
@@ -34,7 +27,15 @@ export const PINNED_STATES = [
   "BLOCKED",
 ];
 
-/** Pull the marker template out of an installed SKILL.md. */
+/** Both native adapters point to one workflow; older installations inline it. */
+export function readSkillContract(skillDir) {
+  const entry = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
+  return entry.includes("(references/workflow.md)")
+    ? fs.readFileSync(path.join(skillDir, "references/workflow.md"), "utf8")
+    : entry;
+}
+
+/** Pull the marker template out of the loaded workflow. */
 export function extractMarkerTemplate(skillMd) {
   const match = /^<!-- babysit-prs:v2 .*-->$/m.exec(skillMd);
   return match ? match[0] : null;

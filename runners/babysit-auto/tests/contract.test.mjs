@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -10,11 +11,28 @@ import {
   extractMarkerTemplate,
   extractStates,
   verifyContract,
+  readSkillContract,
 } from "../lib/contract.mjs";
 import { parseMarker } from "../lib/marker.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SKILL_MD = fs.readFileSync(path.join(HERE, "..", "..", "..", "codex-skills", "babysit-prs-codex", "SKILL.md"), "utf8");
+const REPO = path.resolve(HERE, "../../..");
+const SKILL_MD = readSkillContract(path.join(REPO, "codex-skills/babysit-prs-codex"));
+
+test("both native entrypoints expose the same current marker and state contract", () => {
+  const claude = readSkillContract(path.join(REPO, "skills/babysit-prs"));
+  assert.equal(claude, SKILL_MD);
+  assert.deepEqual(verifyContract(claude), { ok: true, drift: [] });
+});
+
+test("legacy inline contracts remain supported and a missing shared workflow fails", t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "babysit-contract-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, "SKILL.md"), SKILL_MD);
+  assert.deepEqual(verifyContract(readSkillContract(dir)), { ok: true, drift: [] });
+  fs.writeFileSync(path.join(dir, "SKILL.md"), "Read [workflow](references/workflow.md).\n");
+  assert.throws(() => readSkillContract(dir), /ENOENT/);
+});
 
 // This is the guard that makes a separate runner safe: the runner reads state
 // the skill publishes, and nothing at runtime would notice if that shape moved.

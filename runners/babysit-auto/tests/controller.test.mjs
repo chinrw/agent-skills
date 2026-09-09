@@ -14,6 +14,8 @@ test("the default contract path uses the installed native skill without a Claude
   const dir = path.join(root, ".agents/skills/babysit-prs-codex");
   fs.mkdirSync(dir, { recursive: true });
   fs.copyFileSync(fileURLToPath(new URL("../../../codex-skills/babysit-prs-codex/SKILL.md", import.meta.url)), path.join(dir, "SKILL.md"));
+  fs.mkdirSync(path.join(dir, "references"));
+  fs.copyFileSync(fileURLToPath(new URL("../../../codex-skills/babysit-prs-codex/references/workflow.md", import.meta.url)), path.join(dir, "references/workflow.md"));
   const env = { ...process.env, HOME: root };
   delete env.BABYSIT_SKILL_DIR;
   const result = spawnSync(process.execPath, [fileURLToPath(new URL("../tick-gate.mjs", import.meta.url)), "contract"], { env, encoding: "utf8" });
@@ -22,7 +24,7 @@ test("the default contract path uses the installed native skill without a Claude
   assert.equal(result.stdout.trim(), "CONTRACT-OK");
 });
 
-test("the runner starts one Codex controller with matching effort and snapshot arguments", (t) => {
+test("the runner configures effort without requiring an operator attestation", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "babysit-controller-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const fake = path.join(root, "codex");
@@ -37,7 +39,7 @@ test("the runner starts one Codex controller with matching effort and snapshot a
     "exec", "--cd", root, "--sandbox", "workspace-write", "--approve-for-me",
     "-c", "sandbox_workspace_write.network_access=true",
     "-c", 'model_reasoning_effort="xhigh"',
-    "Use babysit-prs-codex: effort=xhigh --snapshot-only"
+    "Use babysit-prs-codex: --snapshot-only"
   ]);
   const failed = spawnSync("bash", [RUNNER], { cwd: root, env: { ...env, FAKE_EXIT: "17" }, encoding: "utf8" });
   assert.ifError(failed.error);

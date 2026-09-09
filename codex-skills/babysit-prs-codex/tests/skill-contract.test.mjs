@@ -7,7 +7,8 @@ import { validate } from "../scripts/lib/schema.mjs";
 
 const SKILL_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const AGENT_DIR = path.join(SKILL_DIR, "prompts");
-const SKILL = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
+const ENTRY = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
+const SKILL = `${ENTRY}\n${fs.readFileSync(path.join(SKILL_DIR, "references/workflow.md"), "utf8")}`;
 const VARIANTS = [{ name: "babysit-prs-codex", text: SKILL }];
 const AGENTS = ["spec-selector", "finding-judge", "thread-judge", "verifier", "composition-verifier", "critical-composition-verifier"];
 function assertShared(rule, label) {
@@ -15,9 +16,15 @@ function assertShared(rule, label) {
 }
 
 test("the native skill remains explicitly invoked and contains no subprocess task routing", () => {
-  assert.match(SKILL, /^name: babysit-prs-codex$/m);
-  assert.match(fs.readFileSync(path.join(SKILL_DIR, "agents/openai.yaml"), "utf8"), /allow_implicit_invocation: false/);
-  assert.match(SKILL, /fork_turns="none"/);
+  assert.match(ENTRY, /^name: babysit-prs(?:-codex)?$/m);
+  assert.match(ENTRY, /disable-model-invocation: true/);
+  if (/^name: babysit-prs-codex$/m.test(ENTRY)) {
+    assert.match(fs.readFileSync(path.join(SKILL_DIR, "agents/openai.yaml"), "utf8"), /allow_implicit_invocation: false/);
+    assert.match(ENTRY, /fork_turns="none"/);
+  } else {
+    assert.match(ENTRY, /native `Agent`/);
+    assert.match(ENTRY, /fresh, non-fork subagent/);
+  }
   assert.match(SKILL, /Native completion must be observed independently/);
   assert.match(SKILL, /controller owns commits and every GitHub write/);
   assert.match(SKILL, /confirmed the old task has stopped|confirming the old task has stopped/);
@@ -161,40 +168,12 @@ test("collision, independent-verification, and stacked-merge rules are intact", 
   assertShared("An implementer claim is not acceptance. A fresh verifier checkpoint and real", "independent verification");
 });
 
-test("merged worktrees are reclaimed, and only on authoritative merge state", () => {
-  for (const rule of [
-    // The collision constraint stays; the exception to it is what is new.
-    "Clean up only worktrees owned by this run.",
-    "may be removed by\nany run, not only its owner",
-    // All four clauses of the predicate.
-    "`git -C <worktree> status --porcelain` prints nothing",
-    "the PR that owns it is `MERGED` on GitHub",
-    "it is neither the main checkout nor the worktree this run executes from",
-    // PR resolution is branch-first: worktree names follow no convention, so a
-    // name-pattern rule resolves almost nothing and the sweep goes inert.
-    "gh pr list --repo chinrw/stocks --head <branch> --state all --json number,state",
-    "`OPEN` outranks `MERGED`",
-    "gh pr view <N> --repo chinrw/stocks --json state --jq .state",
-    "not a `pr<N>-` prefix",
-    "`worktree-agent-*`",
-    // The 3-digit floor and the no-guess branch. Dropping either lets a random
-    // suffix resolve to a real merged low-numbered PR and deletes an unrelated
-    // worktree; the `gh pr view` confirmation cannot catch it, the PR is real.
-    "digit runs of **three or more** digits",
-    "two or more distinct runs — unresolved",
-    "PR numbers here are three digits",
-    // Squash merges make ancestry useless here; keep the reason in the doc.
-    "This repository squash-merges",
-    "`git merge-base --is-ancestor` reports",
-    // Both call sites, plus the modes that must not reclaim anything.
-    "Once `state=MERGED` is verified, reclaim that PR's worktree",
-    "### 3.2 Startup worktree sweep",
-    "do not sweep or remove worktrees (section 3.2)",
-    "Skip the sweep entirely under `--dry-run` and `--snapshot-only`",
-    "Never `--force`."
-  ]) {
-    assertShared(rule, "worktree reclamation rule");
-  }
+test("both adapters require ownership and saved commits before worktree reclamation", () => {
+  assert.match(SKILL, /scripts\/worktree-guard\.mjs/);
+  assert.match(SKILL, /creation-time ownership record/);
+  assert.match(SKILL, /controller has observed all tasks and processes using it terminate/);
+  assert.match(SKILL, /Skip the sweep entirely under `--dry-run` and `--snapshot-only`/);
+  assert.doesNotMatch(SKILL, /digit runs of \*\*three or more\*\* digits/);
 });
 
 test("the external-review gate semantics survive the repair", () => {

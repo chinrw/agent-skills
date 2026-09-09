@@ -5,7 +5,7 @@
  * A timer that simply re-runs the skill every N minutes pays a `best`/`xhigh`
  * controller on every tick, including the ticks where GitHub has not moved. The
  * marker in each PR's status comment already carries `state` and
- * `codexNextTriggerAt` (SKILL.md section 8), so "is any work due?" is decidable
+ * `codexNextTriggerAt` (shared workflow section 8), so "is any work due?" is decidable
  * from two `gh` calls and no model at all.
  *
  *   node tick-gate.mjs due  --repo chinrw/stocks   exit 0 due, 10 idle, 13 busy, 2 error
@@ -25,7 +25,7 @@ import { execFileSync } from "node:child_process";
 import { DEFAULT_BUSY_WINDOW_SECONDS, findActiveRun, listProcessCwds } from "./lib/busy.mjs";
 import { runCli } from "./lib/cli.mjs";
 import { parseMarker } from "./lib/marker.mjs";
-import { verifyContract } from "./lib/contract.mjs";
+import { readSkillContract, verifyContract } from "./lib/contract.mjs";
 
 const DEFAULT_LOCK = path.join(os.homedir(), ".claude", "babysit-prs", "run.lock");
 const DEFAULT_SKILL_DIR = process.env.BABYSIT_SKILL_DIR ?? path.join(os.homedir(), ".agents", "skills", "babysit-prs-codex");
@@ -422,9 +422,9 @@ function runContract(args) {
 
   let text;
   try {
-    text = fs.readFileSync(skillMd, "utf8");
+    text = readSkillContract(skillDir);
   } catch {
-    process.stderr.write(`cannot read ${skillMd}\n`);
+    process.stderr.write(`cannot read ${skillMd} or its shared workflow\n`);
     return 12;
   }
 

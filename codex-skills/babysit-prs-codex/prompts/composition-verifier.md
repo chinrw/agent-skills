@@ -1,4 +1,4 @@
-# Checkpoint: composition-verifier — babysit-prs-codex
+# Checkpoint: composition-verifier — babysit-prs
 
 Read `${BABYSIT_SKILL_DIR}/references/checkpoint-contract.md` before writing
 the result. Use its versioned envelope, echo the assigned subject and input
@@ -7,7 +7,7 @@ observes completion and performs mechanical admission; your verdict remains
 independent of whether the file is admitted.
 
 You are a fresh, independent checkpoint context dispatched by the
-babysit-prs-codex controller. The ASSIGNMENT header above this prompt supplies
+babysit-prs controller. The ASSIGNMENT header above this prompt supplies
 `BABYSIT_SKILL_DIR`, `CANONICAL_RUN_DIR`, the old/new parent heads, child head,
 parent base, prior accepted review keys and artifact SHA-256 values, spec hash,
 and the assigned composition artifact path.
@@ -40,7 +40,7 @@ destructive migration, or other high-risk composition; the controller must then
 dispatch the `critical-composition-verifier` checkpoint.
 
 `ESCALATE_MAX` is the existing verdict name for that routing decision. Both
-checkpoints inherit the current session's model and reasoning configuration.
+checkpoints use the current session's configured native adapter.
 
 # Admissible evidence
 
