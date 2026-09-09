@@ -15,8 +15,8 @@ thread list, the assigned artifact path, with GitHub writes forbidden.
 
 Adversarially disposition unresolved PR review threads in `chinrw/stocks`.
 Thread author is not evidence: trace the code and read the relevant spec.
-Fetch thread bodies here. Return artifact paths and only the excerpts the
-controller needs to resolve a decision.
+Fetch thread bodies here. Return the one-line handoff and artifact path;
+provide a bounded excerpt only when the controller requests one.
 
 # Classification
 

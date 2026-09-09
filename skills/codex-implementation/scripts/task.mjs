@@ -335,14 +335,83 @@ export function reconcile(attempt, proof) {
   return state;
 }
 
+function outputPath(identity, candidate) {
+  const output = path.join(fs.realpathSync(path.dirname(path.resolve(candidate))), path.basename(candidate));
+  const relative = path.relative(identity.workspaceRoot, output);
+  if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) {
+    throw new Error("output must be outside the source worktree");
+  }
+  return output;
+}
+
+export function assessmentTemplate(attempt, destination) {
+  const { identity, state } = load(attempt);
+  const output = outputPath(identity, destination ?? path.join(attempt, `assessment-draft-${crypto.randomUUID()}.json`));
+  const assessment = { attemptId: identity.attemptId, jobId: state.jobId, threadId: state.threadId,
+    snapshot: state.snapshot ?? snapshot(identity.workspaceRoot), processesStopped: false,
+    processIds: state.workerPid ? [state.workerPid] : [], lifecycleEvidence: "",
+    criteria: identity.criteria.map(id => ({ id, status: "NOT RUN", evidence: "" })),
+    independentCheck: { status: "NOT RUN", evidence: "" } };
+  fs.writeFileSync(output, JSON.stringify(assessment, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  return { file: output, assessment };
+}
+
+function recordFiles(attempt) {
+  const fixed = new Set(["assignment.json", "state.json", "prompt.md", "baseline.patch", "launch.json",
+    "status.json", "result.json", "cancel.json", "assessment.json"]);
+  const files = [];
+  for (const entry of fs.readdirSync(attempt, { withFileTypes: true })) {
+    if (fixed.has(entry.name) || /^(assessment-draft|recovery)-.+\.json$/.test(entry.name)) {
+      if (!entry.isFile()) throw new Error("task records must be ordinary files");
+      files.push(entry.name);
+    } else if (entry.name === "diagnostics") {
+      if (!entry.isDirectory()) throw new Error("diagnostics must be an ordinary directory");
+      for (const child of fs.readdirSync(path.join(attempt, entry.name), { withFileTypes: true })) {
+        if (!child.isFile() || !child.name.endsWith(".json")) throw new Error("diagnostics must contain ordinary JSON records");
+        files.push(`diagnostics/${child.name}`);
+      }
+    }
+  }
+  return files.sort();
+}
+
+export function exportHandoff(attempt, destination) {
+  const { identity } = load(attempt);
+  const output = outputPath(identity, destination);
+  const source = fs.realpathSync(attempt);
+  const relative = path.relative(source, output);
+  if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) throw new Error("export must be outside the attempt directory");
+  const files = recordFiles(source);
+  fs.mkdirSync(output, { recursive: false, mode: 0o700 });
+  const records = [];
+  for (const name of files) {
+    const content = fs.readFileSync(path.join(source, name));
+    const target = path.join(output, name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content, { flag: "wx", mode: 0o600 });
+    records.push({ path: name, bytes: content.length, sha256: hash(content) });
+  }
+  if (JSON.stringify(recordFiles(source)) !== JSON.stringify(files)) throw new Error("task records changed during export; partial output has no manifest");
+  for (const record of records) {
+    if (hash(fs.readFileSync(path.join(source, record.path))) !== record.sha256 ||
+        hash(fs.readFileSync(path.join(output, record.path))) !== record.sha256) throw new Error("task records changed during export; partial output has no manifest");
+  }
+  const manifest = { schemaVersion: 1, scope: "task-records-only", attemptId: identity.attemptId,
+    exportedAt: new Date().toISOString(), sourceTreeIncluded: false, liveLifecycleChecked: false, files: records };
+  fs.writeFileSync(path.join(output, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+  return { directory: output, manifest };
+}
+
 function main(argv) {
   const [action, first, second] = argv;
   if (action === "launch" && first && second && argv.length === 3) return launch(read(first), second);
   if (["status", "result", "cancel"].includes(action) && first && argv.length === 2) return operate(action, first);
   if (action === "diagnose" && first && argv.length === 2) return diagnose(first);
   if (action === "reconcile" && first && second && argv.length === 3) return reconcile(first, read(second));
+  if (action === "assessment-template" && first && argv.length <= 3) return assessmentTemplate(first, second);
+  if (action === "export-handoff" && first && second && argv.length === 3) return exportHandoff(first, second);
   if (["settle", "complete"].includes(action) && first && second && argv.length === 3) return assess(first, read(second), action === "complete");
-  throw new Error("usage: task.mjs launch ASSIGNMENT NEW_ATTEMPT | status|result|cancel|diagnose ATTEMPT | settle|complete|reconcile ATTEMPT PROOF");
+  throw new Error("usage: task.mjs launch ASSIGNMENT NEW_ATTEMPT | status|result|cancel|diagnose ATTEMPT | settle|complete|reconcile ATTEMPT PROOF | assessment-template ATTEMPT [OUTPUT] | export-handoff ATTEMPT NEW_DIRECTORY");
 }
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { console.log(JSON.stringify({ ok: true, result: main(process.argv.slice(2)) })); }

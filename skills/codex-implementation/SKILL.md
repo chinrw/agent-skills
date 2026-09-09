@@ -36,7 +36,7 @@ prevents completion.
 
 ## 2. Pin the runtime and assignment
 
-Before any dispatch or recovery, read [the runtime contract](references/runtime.md).
+Before dispatch, read [the runtime contract](references/runtime.md).
 Resolve the companion from the active Claude plugin's path or runtime metadata.
 An installed-plugin registry is a candidate location, not proof of which version
 is loaded. Never choose the greatest cached version. If the active plugin cannot
@@ -85,6 +85,9 @@ limit. A queued receipt means execution started, not that work is done.
 
 ## 3. Observe and collect
 
+Read [collection and assessment](references/assessment.md) before collecting
+results or recording acceptance.
+
 Use only the saved attempt path for `status`, `result`, and `cancel`:
 
 ```bash
@@ -104,7 +107,7 @@ coordinates this workflow's attempts only; inspect other runtime tasks and
 writers too. Neither a path assignment nor this lock adds sandbox permissions.
 All updated native, timer, and companion entries share the repository lease.
 For missing or contradictory lifecycle evidence, use `diagnose` and the
-evidence-bound `reconcile` operation in the runtime contract. It can settle
+evidence-bound `reconcile` operation in [recovery](references/recovery.md). It can settle
 proven termination without marking the work complete.
 
 ## 4. Review and correct
@@ -117,7 +120,7 @@ authentication, security, and widely shared interfaces.
 
 For a correction, confirm the old task and its processes have ended and collect
 stable results first. Run `settle` with controller-owned lifecycle evidence as
-described in the runtime contract. Start a fresh attempt with `previous` pointing
+described in the assessment contract. Start a fresh attempt with `previous` pointing
 to the settled attempt; preserve the same authorized goal and include the old
 assignment, stable results, exact findings, current diff, and remaining checks.
 A fresh continuation is not an exact-thread resume and grants no new authority.
@@ -133,6 +136,10 @@ new evidence. Exhaustion means partial or blocked work; it never authorizes
 acceptance. The user may explicitly extend this budget.
 
 ## 5. Complete or hand off
+
+Generate the assessment draft with `assessment-template`; its defaults do not
+approve anything. For a portable handoff, use [record export](references/records.md)
+and let context-bundle collect source and current runtime state separately.
 
 Use `complete` with the controller's assessment only when all required criteria
 are PASS, independent verification is PASS, task/process termination is verified,

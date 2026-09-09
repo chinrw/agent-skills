@@ -26,6 +26,11 @@ Identify any active or unobservable task, its job/thread ID, canonical cwd,
 record/log paths, and last observed lifecycle state. A result file is not proof
 that its writer has stopped. Preserve task records and stable checkpoints; mark
 files that a live writer may still change as an in-progress snapshot.
+For a `codex-implementation` attempt, its `export-handoff` command can supply
+the selected task records and byte manifest. Link those records from HANDOFF
+instead of manually duplicating their IDs and snapshots. That export excludes
+the source tree and does not recheck live lifecycle; collect required source
+material and current host observations separately.
 
 Use all material needed to continue the active task. For code, select relevant
 files and their necessary dependencies, configuration, and tests. Ask when a

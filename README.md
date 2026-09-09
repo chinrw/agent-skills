@@ -82,10 +82,7 @@ links is not a standalone installation.
 Run fixtures from this checkout:
 
 ```bash
-bash codex-skills/babysit-prs-codex/tests/run-all.sh
-python3 -B -m unittest discover -s tests -v
-BABYSIT_SKILL_DIR="$PWD/codex-skills/babysit-prs-codex" \
-  bash runners/babysit-auto/tests/run-all.sh
+bash scripts/check-all.sh
 ```
 
 These checks use fixtures and a fake controller binary. They neither call a
@@ -119,6 +116,9 @@ node --test skills/codex-implementation/tests/*.test.mjs
 
 These fixtures use a fake companion; no model is launched. Effective runtime
 settings and live task termination still require observations from the host.
+`assessment-template` supplies IDs and the snapshot with every judgment left
+NOT RUN. `export-handoff` copies selected task records with a byte manifest;
+the final context bundle still owns the sole `HANDOFF.md` and source accounting.
 
 `./install.sh` links `skills/` entries into `~/.claude/skills`;
 it does not install `codex-skills/`. `--check` reports link state and `--unlink`

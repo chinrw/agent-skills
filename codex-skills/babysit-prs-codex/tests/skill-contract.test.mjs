@@ -8,7 +8,9 @@ import { validate } from "../scripts/lib/schema.mjs";
 const SKILL_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const AGENT_DIR = path.join(SKILL_DIR, "prompts");
 const ENTRY = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
-const SKILL = `${ENTRY}\n${fs.readFileSync(path.join(SKILL_DIR, "references/workflow.md"), "utf8")}`;
+const SKILL = `${ENTRY}\n${fs.readdirSync(path.join(SKILL_DIR, "references"))
+  .filter(name => name.endsWith(".md")).sort()
+  .map(name => fs.readFileSync(path.join(SKILL_DIR, "references", name), "utf8")).join("\n")}`;
 const VARIANTS = [{ name: "babysit-prs-codex", text: SKILL }];
 const AGENTS = ["spec-selector", "finding-judge", "thread-judge", "verifier", "composition-verifier", "critical-composition-verifier"];
 function assertShared(rule, label) {

@@ -64,6 +64,10 @@ test("missing owner metadata and old leases are never reclaimed by age", t => {
   fs.unlinkSync(path.join(lease.active,"owner.json"));
   assert.equal(acquireLock(repo,{runtime:"codex",runId:"new"}).status,"unknown");
   assert.throws(()=>releaseLock(repo,lease.owner.token,proof(lease.owner)),/not owned/);
+  fs.rmdirSync(lease.active);
+  fs.symlinkSync(path.join(lease.root,"missing-owner"),lease.active,"dir");
+  assert.equal(inspectLock(repo).status,"unknown");
+  assert.equal(acquireLock(repo,{runtime:"claude",runId:"new"}).acquired,false);
 });
 
 test("release requires exact owner evidence and refuses live processes", t => {

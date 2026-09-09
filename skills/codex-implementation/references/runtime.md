@@ -84,92 +84,11 @@ fresh continuation after settlement instead of either resume flag. The full
 previous assignment, findings, stable changes, and verification gaps must be
 included in the new prompt; the helper does not invent the continuation context.
 
-## Collect, settle, and complete
+## Next stages
 
-`status ATTEMPT` observes the exact job. `result ATTEMPT` refuses active jobs,
-checks the stored result's identity and terminal status, and records the complete
-source snapshot before and after collection. Neither command approves the work.
-
-`cancel ATTEMPT` records a request, then requires fresh lifecycle observations.
-The inspected plugin marks a job cancelled even if its interrupt request fails.
-A cancelled marker or launcher exception therefore does not establish a terminal
-server turn. The helper retains the lock in those cases. Preserve the record,
-inspect the actual server turn and processes, and report unresolved termination;
-do not start another writer or infer safety from a quiet log.
-Use the controlled recovery operations below when an independent host interface
-can establish the missing terminal facts.
-
-## Controlled diagnosis and recovery
-
-`diagnose ATTEMPT` writes an immutable diagnostic with its hash, saved identity,
-current semantic source snapshot, repository owner, and latest pinned-runtime
-observation or error. It does not change settlement or release ownership and
-remains available when the pinned plugin is missing or changed.
-
-`reconcile ATTEMPT PROOF_JSON` accepts a controller-supplied proof containing:
-
-- `diagnosticFile`, `diagnosticHash`, `attemptId`, and the exact diagnostic
-  `snapshot`; source and assignment bytes must still match.
-- `jobId`, `threadId`, and `turnId`, matching every identity already known.
-- `source.kind` (`app-server` or `native-lifecycle`) and `source.reference`
-  identifying the actual independent host observation.
-- `observedAt`, at or after the diagnostic, and `serverTurn` with exact `id`,
-  `threadId`, and terminal `status` (`completed`, `failed`, or `interrupted`).
-- `allTasksStopped`, `processesStopped`, `processIds`, and `lifecycleEvidence`.
-  Every known worker PID must be included. Live or unobservable PIDs reject it.
-- For an unknown launch: `launchPromptHash` and canonical `requestCwd`, verified
-  against the actual runtime request, including the unique attempt marker.
-
-Fetch this evidence from the host independently of the task's own claims. The
-helper checks its bindings and local process liveness; it cannot authenticate
-the truth of a caller-supplied remote receipt or prove that a PID list is complete.
-Unknown server state, incomplete process inventory, stale source, and guessed
-task identity keep the lease. A result file or cancellation marker is insufficient.
-
-Successful reconciliation preserves the old state and proof, settles the stable
-source, and releases the exact lease. It sets `complete: false`; independent
-acceptance remains a separate action. Fresh continuation can then use `previous`.
-`leaseReleased` is separate from settlement. If release I/O fails, retain the
-proof and retry the same recovery; a recorded settlement cannot bypass a held
-repository lease.
-Older companion bookkeeping cannot overwrite newer host-derived settlement;
-new contradictory lifecycle or source evidence requires reconciliation again.
-
-After collecting a terminal result, prepare an assessment outside the worktree:
-
-```json
-{
-  "attemptId": "Exact attemptId from assignment.json",
-  "jobId": "Exact jobId from state.json",
-  "threadId": "Exact threadId from state.json",
-  "snapshot": "Copy the complete snapshot object from state.json before review",
-  "processesStopped": true,
-  "lifecycleEvidence": "Actual observed task completion and process cleanup evidence",
-  "criteria": [
-    {"id": "behavior", "status": "PASS", "evidence": "Observed behavior/check result"},
-    {"id": "regression", "status": "PASS", "evidence": "Focused regression result"}
-  ],
-  "independentCheck": {"status": "PASS", "evidence": "Controller's decisive independent check"}
-}
-```
-
-Replace the snapshot placeholder with the actual JSON object. Produce evidence
-after inspecting the full diff and running the checks; copying a previous PASS
-or filling a template without observation is not verification. Record any
-optional NOT RUN/BLOCKED check and its reason alongside these required checks.
-
-- `settle ATTEMPT ASSESSMENT_JSON` verifies current terminal/source identity and
-  the controller's process-termination evidence, then releases this attempt's
-  workspace lock. It does not require all criteria to pass or declare completion.
-  Use it before a correction in a new thread.
-- `complete ATTEMPT ASSESSMENT_JSON` additionally requires a successful task,
-  exactly one evidence-backed PASS for each assigned criterion, and independent
-  verification PASS. It rereads the exact result and rejects source drift.
-
-The helper validates records and bindings; it cannot independently establish
-the truth of controller-supplied lifecycle or test evidence. Inspect real task
-and process state before making those assertions. An ordinary `failed` job
-without a returned terminal turn result remains unknown for writer release.
+- Before collection or acceptance, read [assessment](assessment.md).
+- For unknown, cancelled, or contradictory lifecycle, read [recovery](recovery.md).
+- Before exporting task records, read [records](records.md).
 
 ## Errors and recovery
 

@@ -21,9 +21,9 @@ node tick-gate.mjs contract
 
 The default skill path is `~/.agents/skills/babysit-prs-codex`, overridable with
 `BABYSIT_SKILL_DIR` or `contract --skill-dir`. The contract check pins the v2
-marker template and the 14 states in the shared workflow's section 9. It reads
-the entrypoint's `references/workflow.md`, while retaining support for older
-installations that inline the contract in SKILL.md. Both native entrypoints
+marker template and the 14 states in section 9 of `references/state-contract.md`.
+It follows the shared workflow router, while retaining support for older
+monolithic workflow.md and inline SKILL.md contracts. Both native entrypoints
 publish the same contract; this check does not select the controller runtime.
 
 The due gate detects missing or stale markers, head/base changes, unfinished

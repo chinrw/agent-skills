@@ -32,6 +32,11 @@ test("legacy inline contracts remain supported and a missing shared workflow fai
   assert.deepEqual(verifyContract(readSkillContract(dir)), { ok: true, drift: [] });
   fs.writeFileSync(path.join(dir, "SKILL.md"), "Read [workflow](references/workflow.md).\n");
   assert.throws(() => readSkillContract(dir), /ENOENT/);
+  fs.mkdirSync(path.join(dir,"references"));
+  fs.writeFileSync(path.join(dir,"references/workflow.md"),"Read [state](state-contract.md).\n");
+  assert.throws(()=>readSkillContract(dir),/ENOENT/);
+  fs.writeFileSync(path.join(dir,"references/state-contract.md"),SKILL_MD);
+  assert.deepEqual(verifyContract(readSkillContract(dir)),{ok:true,drift:[]});
 });
 
 // This is the guard that makes a separate runner safe: the runner reads state

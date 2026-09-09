@@ -20,6 +20,9 @@ class PackagingTests(unittest.TestCase):
                 subprocess.run(["python3", str(ROOT / "scripts/package-babysit.py"), runtime, str(target)], check=True)
                 self.assertFalse(any(p.is_symlink() for p in target.rglob("*")))
                 self.assertIn("name: " + name + "\n", (target / "SKILL.md").read_text())
+                for document in ("startup.md", "evidence.md", "state-contract.md", "review.md",
+                                 "implementation.md", "external-review.md", "publication.md", "worktrees.md"):
+                    self.assertTrue((target / "references" / document).is_file(), document)
                 for resource in ("scripts", "schemas", "prompts", "references", "tests"):
                     for source in (CORE / resource).rglob("*"):
                         if source.is_file() and "__pycache__" not in source.parts:

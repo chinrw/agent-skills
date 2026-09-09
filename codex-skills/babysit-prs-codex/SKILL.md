@@ -34,17 +34,14 @@ all children and publication; release only with observed quiescence evidence.
 ## Shared workflow
 
 Resolve `BABYSIT_SKILL_DIR` to this loaded skill's directory. Read
-[the shared workflow](references/workflow.md) sections 1–9 before scheduling
-PR work. For `--snapshot-only`, read sections 1.1 and 7 and report without
-starting children or changing source or GitHub state.
-
-Load later sections when their stage is reached:
-
-- Review or thread findings: sections 10–11.
-- Implement and verify fixes: section 12.
-- External review, CI, and composition: sections 13–15.
-- Before publishing or merging: sections 16–20 and 22.
-- Final report or invocation limit: sections 17 and 21.
+[workflow navigation](references/workflow.md), then
+[startup](references/startup.md). Load later contracts only before the action
+listed in the navigation table. Before publishing, load
+[the complete publication contract](references/publication.md); apply its full
+gates to every wave with fresh observations. Reuse instructions already in
+context, reloading after compaction or policy changes.
+For `--snapshot-only`, read startup §1.1 and evidence §7; dispatch no children
+and make no source or GitHub changes.
 
 The workflow defines arguments, repository policy, run artifacts, the v2
 marker/state contract, and exact-identity acceptance. After compaction, reread

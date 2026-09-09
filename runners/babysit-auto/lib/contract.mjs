@@ -30,9 +30,12 @@ export const PINNED_STATES = [
 /** Both native adapters point to one workflow; older installations inline it. */
 export function readSkillContract(skillDir) {
   const entry = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8");
-  return entry.includes("(references/workflow.md)")
+  const workflow = entry.includes("(references/workflow.md)")
     ? fs.readFileSync(path.join(skillDir, "references/workflow.md"), "utf8")
     : entry;
+  return workflow.includes("(state-contract.md)")
+    ? fs.readFileSync(path.join(skillDir, "references/state-contract.md"), "utf8")
+    : workflow;
 }
 
 /** Pull the marker template out of the loaded workflow. */

@@ -23,12 +23,7 @@ Helpers use Node ES modules, Python's standard library, Bash, and systemd.
 Run checks from the repository root:
 
 ```bash
-bash codex-skills/babysit-prs-codex/tests/run-all.sh
-python3 -B -m unittest discover -s tests -v
-python3 -B -m unittest discover -s codex-skills/context-bundle/tests -v
-node --test skills/codex-implementation/tests/*.test.mjs
-BABYSIT_SKILL_DIR="$PWD/codex-skills/babysit-prs-codex" \
-  bash runners/babysit-auto/tests/run-all.sh
+bash scripts/check-all.sh
 ```
 
 - Tests use fixtures and fake executables. Do not substitute live model calls,

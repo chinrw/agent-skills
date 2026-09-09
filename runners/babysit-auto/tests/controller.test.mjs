@@ -17,6 +17,7 @@ test("the default contract path uses the installed native skill without a Claude
   fs.copyFileSync(fileURLToPath(new URL("../../../codex-skills/babysit-prs-codex/SKILL.md", import.meta.url)), path.join(dir, "SKILL.md"));
   fs.mkdirSync(path.join(dir, "references"));
   fs.copyFileSync(fileURLToPath(new URL("../../../codex-skills/babysit-prs-codex/references/workflow.md", import.meta.url)), path.join(dir, "references/workflow.md"));
+  fs.copyFileSync(fileURLToPath(new URL("../../../codex-skills/babysit-prs-codex/references/state-contract.md", import.meta.url)), path.join(dir, "references/state-contract.md"));
   const env = { ...process.env, HOME: root };
   delete env.BABYSIT_SKILL_DIR;
   const result = spawnSync(process.execPath, [fileURLToPath(new URL("../tick-gate.mjs", import.meta.url)), "contract"], { env, encoding: "utf8" });

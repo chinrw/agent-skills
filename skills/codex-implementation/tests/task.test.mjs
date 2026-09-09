@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { launch, operate, assess, diagnose, reconcile } from "../scripts/task.mjs";
+import { launch, operate, assess, diagnose, reconcile, assessmentTemplate, exportHandoff } from "../scripts/task.mjs";
 import { inspectLock } from "../scripts/lib/repository-lock.mjs";
 
 const CLI = fileURLToPath(new URL("../scripts/task.mjs", import.meta.url));
@@ -313,4 +313,62 @@ test("a failed lease release can be retried without inventing a new recovery", t
   mocked.mock.restore();
   assert.equal(reconcile(f.attempt,proof).leaseReleased,true);
   assert.equal(inspectLock(f.repo).status,"free");
+});
+
+test("assessment scaffolding binds current IDs and never supplies a PASS", t => {
+  const f=fixture(t);launch(f.input,f.attempt);f.finish();operate("result",f.attempt);
+  const before=fs.readFileSync(path.join(f.attempt,"state.json"),"utf8");
+  const {file,assessment}=assessmentTemplate(f.attempt);
+  assert.deepEqual(read(file),assessment);
+  assert.equal(assessment.attemptId,read(path.join(f.attempt,"assignment.json")).attemptId);
+  assert.deepEqual(assessment.snapshot,read(path.join(f.attempt,"state.json")).snapshot);
+  assert.equal(assessment.processesStopped,false);
+  assert.ok(assessment.criteria.every(item=>item.status==='NOT RUN' && item.evidence===''));
+  assert.equal(assessment.independentCheck.status,'NOT RUN');
+  assert.equal(fs.readFileSync(path.join(f.attempt,"state.json"),"utf8"),before);
+  assert.throws(()=>assess(f.attempt,assessment,true),/termination/);
+});
+
+test("assessment outputs cannot overwrite user edits or enter the source worktree", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  const output=path.join(f.root,'assessment.json');fs.writeFileSync(output,'human edits');
+  assert.throws(()=>assessmentTemplate(f.attempt,output),/EEXIST/);
+  assert.equal(fs.readFileSync(output,'utf8'),'human edits');
+  assert.throws(()=>assessmentTemplate(f.attempt,path.join(f.repo,'assessment.json')),/outside/);
+});
+
+test("handoff export contains verified task records without claiming live or source coverage", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  fs.writeFileSync(path.join(f.attempt,'private.txt'),'unselected');
+  const calls=read(f.stateFile).calls.length;
+  const output=path.join(f.root,'exported');
+  const result=exportHandoff(f.attempt,output);
+  assert.equal(result.manifest.scope,'task-records-only');
+  assert.equal(result.manifest.liveLifecycleChecked,false);
+  assert.equal(result.manifest.sourceTreeIncluded,false);
+  assert.equal(read(f.stateFile).calls.length,calls);
+  assert.equal(fs.existsSync(path.join(output,'HANDOFF.md')),false);
+  assert.equal(fs.existsSync(path.join(output,'private.txt')),false);
+  for(const item of result.manifest.files) assert.deepEqual(fs.readFileSync(path.join(output,item.path)),fs.readFileSync(path.join(f.attempt,item.path)));
+  assert.throws(()=>exportHandoff(f.attempt,output),/EEXIST/);
+  assert.throws(()=>exportHandoff(f.attempt,path.join(f.attempt,'nested')),/outside/);
+});
+
+test("record mutation during export leaves no completed manifest", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  const output=path.join(f.root,'exported'), original=fs.writeFileSync;
+  t.mock.method(fs,'writeFileSync',(file,...args)=>{
+    const result=original(file,...args);
+    if(String(file)===path.join(output,'state.json')) original(path.join(f.attempt,'state.json'),JSON.stringify({status:'changed'}));
+    return result;
+  });
+  assert.throws(()=>exportHandoff(f.attempt,output),/changed during export/);
+  assert.equal(fs.existsSync(path.join(output,'manifest.json')),false);
+});
+
+test("symlinked task records cannot pull in material outside the selected attempt", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  const original=path.join(f.root,'state.json');fs.renameSync(path.join(f.attempt,'state.json'),original);
+  fs.symlinkSync(original,path.join(f.attempt,'state.json'));
+  assert.throws(()=>exportHandoff(f.attempt,path.join(f.root,'exported')),/ordinary files/);
 });

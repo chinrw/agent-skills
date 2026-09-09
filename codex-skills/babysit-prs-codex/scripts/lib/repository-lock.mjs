@@ -12,7 +12,12 @@ function locations(checkout) {
 
 export function inspectLock(checkout) {
   const paths = locations(checkout);
-  if (!fs.existsSync(paths.active)) return { status: "free", ...paths };
+  try {
+    if (!fs.lstatSync(paths.active).isDirectory()) return { status: "unknown", owner: null, ...paths };
+  } catch (error) {
+    if (error.code === "ENOENT") return { status: "free", ...paths };
+    return { status: "unknown", owner: null, ...paths };
+  }
   try {
     const owner = JSON.parse(fs.readFileSync(path.join(paths.active, "owner.json"), "utf8"));
     if (owner.schemaVersion !== 1 || owner.commonDir !== paths.commonDir || !owner.token || !owner.runId || !owner.runtime) throw new Error("invalid owner");
