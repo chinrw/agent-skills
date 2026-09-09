@@ -13,12 +13,18 @@ Helpers use Node ES modules, Python's standard library, Bash, and systemd.
   use the current session's native tools.
 - `skills/codex-implementation/` is a separate Claude/companion workflow.
   Its dependencies do not apply to native babysitting.
+- Its task helper pins the companion and cwd; unknown lifecycle retains the
+  attempt lock. Corrections start fresh only after source-bound settlement.
+- `codex-skills/context-bundle/` packages portable handoffs. Its helper checks
+  bytes; the controller checks source completeness and ongoing task state.
 
 Run checks from the repository root:
 
 ```bash
 bash codex-skills/babysit-prs-codex/tests/run-all.sh
 python3 -B -m unittest discover -s tests -v
+python3 -B -m unittest discover -s codex-skills/context-bundle/tests -v
+node --test skills/codex-implementation/tests/*.test.mjs
 BABYSIT_SKILL_DIR="$PWD/codex-skills/babysit-prs-codex" \
   bash runners/babysit-auto/tests/run-all.sh
 ```

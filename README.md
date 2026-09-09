@@ -2,6 +2,21 @@
 
 Version-controlled agent skills and a local PR automation runner.
 
+## context-bundle
+
+[`codex-skills/context-bundle/SKILL.md`](codex-skills/context-bundle/SKILL.md)
+packages the current task for another agent as one ZIP. It includes the needed
+non-public material and a single `HANDOFF.md` with task state, next actions,
+source provenance, public references, and explicit gaps. A Python standard-library
+helper adds a SHA-256 manifest and verifies the archived bytes.
+
+Example request: `Use $context-bundle to package this conversation for another agent.`
+This checkout contains the skill source; `install.sh` does not install it.
+
+```bash
+python3 -m unittest discover -s codex-skills/context-bundle/tests -v
+```
+
 ## Native PR babysitting
 
 Two entrypoints prepare `chinrw/stocks` PRs for merging and merge eligible
@@ -87,6 +102,19 @@ For scheduled operation, see [`runners/babysit-auto/`](runners/babysit-auto/READ
 [`skills/codex-implementation/SKILL.md`](skills/codex-implementation/SKILL.md)
 is the separate Claude-plans/Codex-implements workflow. It retains its own
 companion execution path.
+
+It supports read-only investigation before implementation. The
+[attempt helper and runtime contract](skills/codex-implementation/references/runtime.md)
+pin the companion, cwd, and job/thread identity, preserve ambiguous outcomes,
+and bind completion to required criteria and independent checks. Corrections
+use a fresh thread after collecting and settling the previous attempt.
+
+```bash
+node --test skills/codex-implementation/tests/*.test.mjs
+```
+
+These fixtures use a fake companion; no model is launched. Effective runtime
+settings and live task termination still require observations from the host.
 
 `./install.sh` links `skills/` entries into `~/.claude/skills`;
 it does not install `codex-skills/`. `--check` reports link state and `--unlink`

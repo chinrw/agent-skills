@@ -1,251 +1,146 @@
 ---
 name: codex-implementation
-description: Orchestrate non-trivial implementation work where Claude plans and reviews while Codex writes the code. Use for features, bug fixes, refactors, substantial tests, behavior-changing configuration, build or CI changes, and security-sensitive implementation.
+description: Delegate bounded investigation or implementation to Codex while Claude owns scope and independent acceptance. Use for non-trivial features, fixes, refactors, tests, configuration, or build changes that benefit from a separate Codex task.
 ---
 
 # Codex implementation workflow
 
-Claude is the planner and final validator. Codex is the implementation writer.
-
-## 1. Preflight
-
-Before delegation, Claude must:
-
-- read applicable repository instructions;
-- inspect `git status --short`;
-- identify pre-existing or unrelated worktree changes;
-- explore enough of the repository to choose an implementation approach;
-- resolve architecture, API, schema, dependency, compatibility, and security
-  decisions before asking Codex to write code;
-- capture the relevant failing-test or current-behavior baseline when practical;
-- confirm the delegated edit surface lies inside the git repository that
-  contains the session's working directory.
-
-Codex derives its sandbox from the workspace root: `--write` runs under
-`workspace-write`, whose only writable root is the git repo root of the
-companion's cwd. A path outside that tree is readable but not writable, and
-Codex does not fail on it. It relocates the work into a scratch directory
-inside the writable repo, so the delegation looks like it succeeded while the
-target repo stays untouched.
-
-The companion accepts `--cwd <path>` on `task`, `status`, `result`, and
-`cancel`, and derives the workspace root from it. The codex-rescue subagent
-does not: it forwards a fixed flag set, so a `--cwd` written into the
-delegation message lands in the prompt text instead of reaching the companion.
-For a target outside the session repo, either start a session in that
-repository, or bypass the subagent and invoke the companion directly with
-`--cwd`.
-
-Claude may use a read-only Explore subagent for noisy repository exploration,
-but Claude must synthesize the findings and choose the plan.
-
-## 2. Define acceptance
-
-Write a small set of observable acceptance criteria before delegation.
-
-Cover, as applicable:
-
-- requested behavior and important edge cases;
-- regression behavior that must remain unchanged;
-- interface and compatibility constraints;
-- required tests or manual verification;
-- scope and explicitly excluded work.
-
-Avoid vague criteria such as "works correctly" or "all tests pass."
-
-For a bug fix, require a regression test that would fail for the previous
-behavior when practical.
-
-Use these final statuses for every required criterion and validation command:
-
-- PASS: satisfied with concrete evidence;
-- FAIL: attempted and failed;
-- NOT RUN: not executed, with the reason;
-- BLOCKED: could not be executed because of an external dependency or
-  environment limitation.
-
-## 3. Create a bounded handoff
-
-Expected files are guidance, not a hard allowlist unless explicitly stated.
-Codex may inspect any repository files needed for context and may modify
-adjacent tests, fixtures, generated metadata, or supporting files when clearly
-required by the approved plan. It must report every additional file.
-
-Codex may make local tactical decisions consistent with the plan and existing
-repository patterns.
-
-Codex must stop and report rather than independently changing:
-
-- architecture or component boundaries;
-- public APIs or compatibility guarantees;
-- database schemas or persistent formats;
-- dependencies;
-- security or permission models;
-- destructive migration or rollback behavior;
-- the agreed feature scope.
-
-Use the Agent tool with:
-
-`subagent_type: "codex:codex-rescue"`
-
-Pick the execution mode by expected runtime. `--wait` blocks the subagent's
-Bash call, which Claude Code caps at 600 s. A Codex run that exceeds the cap is
-killed mid-flight and its result is orphaned, while the job itself keeps
-running server-side.
-
-Use `--wait` only when the slice should finish well inside 10 minutes: one
-file, no new fixtures, a single validation command.
-
-    --wait --fresh          --wait --resume
-
-Otherwise hand off in background mode and poll from the main loop, because
-codex-rescue is forbidden from calling `status` or `result` itself:
-
-    --background --fresh    --background --resume
-
-A background handoff returns a job id. Poll it with the companion's own
-subcommands, resolving the versioned plugin directory first:
-
-    COMPANION=$(ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | sort -V | tail -1)
-    node "$COMPANION" status <job-id>
-    node "$COMPANION" result <job-id>
-
-Do not use `Skill(codex:rescue)`.
-
-Reasoning effort on this path accepts `none|minimal|low|medium|high|xhigh`
-and rejects `max` outright. This workflow has no effort normalization, so
-a `--effort max` request fails.
-Leave `--effort` unset for the configured default, or pass `--effort xhigh`
-explicitly when the task warrants maximum reasoning. Raise it deliberately:
-`xhigh` combined with a long acceptance list makes Codex re-run the whole
-validation suite several times, which is what pushes a run past the
-foreground cap.
-
-Prefer bounded implementation slices. Split a large implementation into
-sequential, independently verifiable slices rather than sending one
-open-ended request.
-
-While a delegated task is active, Claude must not edit files that overlap the
-delegated edit surface.
-
-Use this handoff structure:
-
----
-<--wait|--background> --fresh
-
-Implement the approved implementation slice below.
-
-Goal:
-<observable outcome>
-
-Current behavior or root cause:
-<relevant current behavior and diagnosis>
-
-Chosen approach:
-<implementation decision already made by Claude>
-
-Expected edit surface:
-<files, directories, symbols, or components likely to change>
-
-Allowed adjacent changes:
-<tests, fixtures, generated files, or supporting code that may also change>
-
-Out of scope:
-<explicit non-goals>
-
-Required invariants:
-<behavior and compatibility that must remain true>
-
-Acceptance criteria:
-<numbered, observable criteria>
-
-Validation commands:
-<exact focused commands and any broader checks>
-
-Worktree state:
-<pre-existing changes that must be preserved>
-
-Decision boundary:
-<decisions Codex may make locally and decisions that require stopping>
-
-Implementation constraints:
-- preserve unrelated and pre-existing changes;
-- follow applicable AGENTS.md and repository conventions;
-- avoid unrelated cleanup and opportunistic refactoring;
-- do not commit, push, reset, restore, checkout, rebase, or amend;
-- do not add dependencies unless explicitly approved.
-
-Return contract:
-- summarize the implementation;
-- list every changed file;
-- report each acceptance criterion as PASS, FAIL, NOT RUN, or BLOCKED;
-- report exact validation commands and their results;
-- identify deviations from the plan;
-- identify assumptions, unresolved concerns, and remaining risks.
----
-
-## 4. Review the implementation
-
-After Codex returns, Claude must:
-
-1. inspect `git status --short`;
-2. inspect the complete diff, not only Codex's summary;
-3. verify that unrelated or pre-existing changes were preserved;
-4. compare the implementation against every acceptance criterion;
-5. inspect whether tests meaningfully exercise the changed behavior;
-6. check for scope expansion, design drift, regressions, and unnecessary
-   complexity;
-7. independently rerun the smallest decisive validation;
-8. run broader validation proportional to the risk and scope.
-
-Claude does not need to duplicate every expensive command Codex ran.
-For ordinary changes, independently rerun the decisive focused tests and one
-appropriate broader check. For concurrency, persistence, migrations,
-authentication, security, build infrastructure, or widely shared APIs, run
-the broader relevant suite when feasible.
-
-Distinguish failures introduced by the change from failures that existed in
-the baseline.
-
-## 5. Correction loop
-
-For non-trivial review findings, resume the same Codex task and provide:
-
-- the exact finding;
-- affected files or symbols;
-- the expected correction;
-- acceptance criteria that remain unmet;
-- validation commands to rerun.
-
-Do not silently reimplement substantial Codex work in Claude.
-
-Use a fresh Codex task only for a new or materially changed implementation
-plan. Use resume for corrections and continuation of the same approved plan.
-
-## 6. Invocation failure handling
-
-If Codex times out, returns an empty response, or reports only that a task was
-started:
-
-- do not assume no files were changed;
-- inspect the current worktree;
-- inspect the Codex job status or stored result when available;
-- do not start another write-capable task while the previous task may still be
-  active;
-- recover completed changes before deciding whether to resume or start fresh.
-
-A foreground timeout kills only the Bash call, not the Codex job. `status`
-will still show it running, and a resume attempt is refused while it is. Read
-the `Log:` path from the status output: it records the commands Codex ran and
-the paths it wrote, which is usually enough to recover a finished patch
-without re-running the work. Cancel the job once its output is recovered.
-
-## 7. Completion
-
-Claude may report completion only after:
-
-- the complete diff has been reviewed;
-- all required acceptance criteria have a recorded status;
-- decisive validation has been run independently;
-- skipped or blocked checks are disclosed;
-- remaining limitations and risks are disclosed.
+Claude owns the goal, authority, and independent acceptance. Codex investigates
+or implements within that boundary. This skill uses the installed companion;
+it is separate from the two native babysit entrypoints.
+
+## 1. Establish the task
+
+Read applicable repository instructions and inspect existing changes. Record
+the actual target repository, canonical cwd, base commit, relevant current
+behavior, and pre-existing changes before a writer starts.
+
+Choose a bounded task:
+
+- **Investigation:** read-only diagnosis, repository exploration, or comparison
+  of implementation approaches. Let Codex gather facts before choosing a design.
+- **Implementation:** state the approved behavior, constraints, compatibility,
+  acceptance criteria, and allowed edit scope. Codex may choose local structure,
+  algorithms, and tests, including necessary adjacent files within that scope.
+
+Ask only for a material choice not already settled by the user: public contracts,
+persistent formats, dependencies, permissions, destructive migration behavior,
+or scope expansion. Continue independent authorized work while resolving it.
+Split by independently verifiable behavior and conflicting writers, not file
+count or a historical foreground timeout.
+
+Define explicit required criterion IDs and their expected observable outcomes.
+Record checks as PASS, FAIL, NOT RUN, or BLOCKED with evidence and the tested
+revision. An unavailable optional check needs a reason; a required missing check
+prevents completion.
+
+## 2. Pin the runtime and assignment
+
+Before any dispatch or recovery, read [the runtime contract](references/runtime.md).
+Resolve the companion from the active Claude plugin's path or runtime metadata.
+An installed-plugin registry is a candidate location, not proof of which version
+is loaded. Never choose the greatest cached version. If the active plugin cannot
+be identified, block dispatch and continue independent preparation.
+
+Use `scripts/task.mjs` from this loaded skill directory. It records one canonical
+cwd/workspace, companion path/version/script hash, Node executable, session ID,
+baseline, criteria, requested settings, and exact job/thread identity. Later
+commands use that record even when the controller's cwd or plugin cache changes.
+
+Use current configured model/effort unless the user chooses otherwise. Explicit
+flags must be supported by both the launcher and selected model. The helper
+checks the launcher's advertised effort values; backend validation still applies.
+A launcher accepting a value does not prove the model accepts it. Keep requested
+and effective settings separate. Unknown effective settings remain unknown;
+never announce an Astra migration from a requested model or wrapper name alone.
+
+Create a JSON assignment outside the source tree:
+
+```json
+{
+  "cwd": "/absolute/target/repo",
+  "companion": "/loaded/plugin/scripts/codex-companion.mjs",
+  "mode": "write",
+  "criteria": ["behavior", "regression"],
+  "prompt": "Goal, current behavior, constraints, allowed edits, required criteria and tests. Preserve pre-existing changes. Leave changes uncommitted. Report every changed file and criterion with evidence."
+}
+```
+
+Use `mode: "read"` for investigation. Add `model` and `effort` only for an
+explicit choice; describe each criterion and test in the full prompt. Supply
+relevant source paths and baseline details, not merely this example sentence.
+The attempt directory must be new, outside the target source tree, with an
+existing writable parent. Its contents may include private code and results.
+
+```bash
+node "$CODEX_IMPLEMENTATION_SKILL_DIR/scripts/task.mjs" \
+  launch "$ASSIGNMENT_JSON" "$NEW_ATTEMPT_DIR"
+```
+
+The controller launches the companion directly. The rescue forwarding agent
+cannot preserve this contract: its installed version omits cwd forwarding,
+turns resume into resume-last, and may return empty output on wrapper errors.
+Background launch avoids coupling task size to the host shell's foreground
+limit. A queued receipt means execution started, not that work is done.
+
+## 3. Observe and collect
+
+Use only the saved attempt path for `status`, `result`, and `cancel`:
+
+```bash
+node "$CODEX_IMPLEMENTATION_SKILL_DIR/scripts/task.mjs" status "$ATTEMPT_DIR"
+node "$CODEX_IMPLEMENTATION_SKILL_DIR/scripts/task.mjs" result "$ATTEMPT_DIR"
+```
+
+The helper checks exact job/workspace/thread identity and collects a terminal
+result with a source snapshot. Errors return structured JSON and a nonzero exit;
+an unknown launch outcome keeps its record and workspace lock. Do not launch
+another writer while the old task or its lifecycle is unknown.
+
+A stored result file, quiet output, elapsed timeout, or cancellation request
+cannot establish termination. Collect the task and any processes it started.
+Verify the complete diff and preserve unrelated changes. The helper's lock
+coordinates this workflow's attempts only; inspect other runtime tasks and
+writers too. Neither a path assignment nor this lock adds sandbox permissions.
+
+## 4. Review and correct
+
+Claude reviews the complete diff against every required criterion and performs
+independent decisive validation. Reuse complete evidence for unchanged code;
+repeat or broaden tests after new changes, failures, or unresolved concerns.
+Keep the relevant broader checks for concurrency, persistence, migrations,
+authentication, security, and widely shared interfaces.
+
+For a correction, confirm the old task and its processes have ended and collect
+stable results first. Run `settle` with controller-owned lifecycle evidence as
+described in the runtime contract. Start a fresh attempt with `previous` pointing
+to the settled attempt; preserve the same authorized goal and include the old
+assignment, stable results, exact findings, current diff, and remaining checks.
+A fresh continuation is not an exact-thread resume and grants no new authority.
+
+Do not use `--resume` or `--resume-last`. The current companion selects the
+latest task inside a background worker, so even a matching preflight candidate
+can change before dispatch. Exact-thread restoration needs a separately verified
+host interface; never invent a companion `--resume-id` option.
+
+Allow at most three implementation attempts for one approved slice, including
+its first attempt. Stop earlier when the same unresolved finding recurs without
+new evidence. Exhaustion means partial or blocked work; it never authorizes
+acceptance. The user may explicitly extend this budget.
+
+## 5. Complete or hand off
+
+Use `complete` with the controller's assessment only when all required criteria
+are PASS, independent verification is PASS, task/process termination is verified,
+and the final source snapshot is unchanged. The helper checks these conditions
+against the assigned criterion IDs. Evidence paths and statements must refer to
+actual observed results; schema validity cannot establish their truth.
+
+Report the actual changed files, acceptance and test results, requested versus
+observed runtime settings, deviations, and remaining risks. Required FAIL,
+BLOCKED, or NOT RUN means incomplete work. Optional checks may be skipped with
+reasons. Do not commit or publish unless the user authorized it.
+
+If work cannot finish, preserve the attempt directory, stable source changes,
+job/thread/cwd identity, last observation, and exact recovery blocker. Do not
+reset the workspace or delete the attempt to make a stuck task look finished.
