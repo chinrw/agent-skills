@@ -30,6 +30,14 @@ than start another writer. All children remain siblings of this controller.
 This entrypoint uses Claude's native children. It shares the core resources
 below with the Codex entrypoint and requires no cross-runtime job launcher.
 
+## Controller ownership
+
+Before any local source/worktree or GitHub write, read and follow
+[controller coordination](references/controller-coordination.md). Acquire the
+repository lease, or adopt the timer's exact supplied token. Hold it through
+all children and publication; release only with observed quiescence evidence.
+`--snapshot-only` takes no write lease.
+
 ## Shared workflow
 
 Resolve `BABYSIT_SKILL_DIR` to this loaded skill's directory. Read

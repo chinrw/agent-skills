@@ -102,6 +102,10 @@ cannot establish termination. Collect the task and any processes it started.
 Verify the complete diff and preserve unrelated changes. The helper's lock
 coordinates this workflow's attempts only; inspect other runtime tasks and
 writers too. Neither a path assignment nor this lock adds sandbox permissions.
+All updated native, timer, and companion entries share the repository lease.
+For missing or contradictory lifecycle evidence, use `diagnose` and the
+evidence-bound `reconcile` operation in the runtime contract. It can settle
+proven termination without marking the work complete.
 
 ## 4. Review and correct
 

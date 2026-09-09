@@ -25,10 +25,8 @@ ExecCondition=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs du
 ExecStartPre=/run/current-system/sw/bin/node ${BABYSIT_RUNNER}/tick-gate.mjs contract
 ExecStartPre=/run/current-system/sw/bin/mkdir -p %h/.claude/babysit-prs
 
-# flock guards timer-against-timer; the gate's busy check above (exit 13,
-# treated as skip) guards against a person driving /babysit-prs at a terminal,
-# since the skill has no lock of its own. The kernel drops this lock on death,
-# so a killed tick cannot block the next.
+# The runner acquires the shared repository lease; flock only suppresses
+# duplicate timer launches. Unknown native children keep the durable lease.
 #
 # The budget is enforced by timeout(1) inside the unit, not by TimeoutStartSec:
 # systemd records its own timeout as Result=timeout, which SuccessExitStatus

@@ -15,6 +15,8 @@ Helpers use Node ES modules, Python's standard library, Bash, and systemd.
   Its dependencies do not apply to native babysitting.
 - Its task helper pins the companion and cwd; unknown lifecycle retains the
   attempt lock. Corrections start fresh only after source-bound settlement.
+- Updated native, timer, and companion controllers share one Git-common-dir
+  lease. No age-based takeover; terminal evidence is required for release.
 - `codex-skills/context-bundle/` packages portable handoffs. Its helper checks
   bytes; the controller checks source completeness and ongoing task state.
 
@@ -42,6 +44,8 @@ BABYSIT_SKILL_DIR="$PWD/codex-skills/babysit-prs-codex" \
 - Worktree removal requires recorded ownership, observed task/process
   termination, confirmed merge state, and a preserved Git ref for current HEAD.
   `worktree-guard.mjs check` checks local storage only, not merge or lifecycle.
+- Unknown ignored files block reclamation. Registered rebuildable artifacts
+  need a separate cleanup policy; retained refs are never deleted automatically.
 - Repository state, installed skill snapshots, and systemd units are separate
   deployment surfaces. See [runner operations](runners/babysit-auto/README.md).
 - After an API error, verify the remote branch and exact commit before retrying.

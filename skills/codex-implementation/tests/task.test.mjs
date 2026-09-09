@@ -5,7 +5,8 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { launch, operate, assess } from "../scripts/task.mjs";
+import { launch, operate, assess, diagnose, reconcile } from "../scripts/task.mjs";
+import { inspectLock } from "../scripts/lib/repository-lock.mjs";
 
 const CLI = fileURLToPath(new URL("../scripts/task.mjs", import.meta.url));
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
@@ -89,7 +90,7 @@ test("an empty launch preserves an unknown attempt and refuses a second writer",
   f.change(value => { value.emptyLaunch = true; });
   assert.throws(() => launch(f.input, f.attempt), /missing or malformed JSON/);
   assert.equal(read(path.join(f.attempt, "state.json")).status, "unknown");
-  assert.throws(() => launch(f.input, path.join(f.root, "second")), /EEXIST/);
+  assert.throws(() => launch(f.input, path.join(f.root, "second")), /busy|EEXIST/);
   assert.equal(read(f.stateFile).counter, 1);
 });
 
@@ -109,7 +110,7 @@ test("running output and a cancellation marker cannot release the writer", t => 
   operate("cancel", f.attempt);
   operate("result", f.attempt);
   assert.throws(() => assess(f.attempt, f.assessment()), /terminal turn/);
-  assert.throws(() => launch(f.input, path.join(f.root, "second")), /EEXIST/);
+  assert.throws(() => launch(f.input, path.join(f.root, "second")), /busy|EEXIST/);
 });
 
 test("required FAIL, NOT RUN, BLOCKED, omissions, and missing independent checks reject completion", t => {
@@ -214,4 +215,102 @@ test("an assessment cannot be reused for a different thread at the same source s
   operate("result", second);
   assert.throws(() => assess(second, previousReport, true), /another attempt/);
   assert.equal(assess(second, f.assessment(second), true).complete, true);
+});
+
+function recoveryProof(f) {
+  const diagnostic = diagnose(f.attempt);
+  const identity = read(path.join(f.attempt,"assignment.json"));
+  return { diagnosticFile:diagnostic.file, diagnosticHash:diagnostic.hash, attemptId:identity.attemptId,
+    snapshot:diagnostic.diagnostic.snapshot, jobId:"job-1", threadId:"thread-1", turnId:"turn-1",
+    source:{kind:"app-server",reference:"Independent fixture server-turn observation"},
+    observedAt:new Date().toISOString(), serverTurn:{id:"turn-1",threadId:"thread-1",status:"interrupted"},
+    processesStopped:true, allTasksStopped:true, processIds:[], lifecycleEvidence:"Fixture worker and all task processes ended",
+    launchPromptHash:identity.promptHash, requestCwd:identity.cwd };
+}
+
+test("controlled reconciliation settles proven cancellation without accepting the work", t => {
+  const f=fixture(t);launch(f.input,f.attempt);operate("cancel",f.attempt);
+  const proof=recoveryProof(f);
+  assert.throws(()=>reconcile(f.attempt,{...proof,serverTurn:{...proof.serverTurn,status:"unknown"}}),/proven terminal/);
+  assert.equal(inspectLock(f.repo).status,"held");
+  const recovered=reconcile(f.attempt,proof);
+  assert.equal(recovered.settled,true);assert.equal(recovered.complete,false);
+  assert.equal(inspectLock(f.repo).status,"free");
+  assert.equal(operate("status",f.attempt).settled,true);
+  assert.equal(operate("result",f.attempt).terminalTurn,true);
+  assert.equal(reconcile(f.attempt,proof).settled,true);
+  launch({...f.input,previous:f.attempt},path.join(f.root,"fresh"));
+  assert.equal(read(f.stateFile).counter,2);
+  const nextOwner=inspectLock(f.repo).owner.token;
+  reconcile(f.attempt,proof);
+  assert.equal(inspectLock(f.repo).owner.token,nextOwner);
+});
+
+test("unknown launch recovery needs the exact request, task identity, and fresh source", t => {
+  const f=fixture(t);f.change(value=>{value.emptyLaunch=true;});
+  assert.throws(()=>launch(f.input,f.attempt),/malformed JSON/);
+  const proof=recoveryProof(f);
+  assert.throws(()=>reconcile(f.attempt,{...proof,launchPromptHash:"wrong"}),/exact request/);
+  assert.throws(()=>reconcile(f.attempt,{...proof,diagnosticHash:"wrong"}),/diagnostic identity/);
+  assert.throws(()=>reconcile(f.attempt,{...proof,observedAt:"1970-01-01T00:00:00Z"}),/fresh host/);
+  fs.writeFileSync(path.join(f.repo,"file"),"new source\n");
+  assert.throws(()=>reconcile(f.attempt,proof),/snapshot changed/);
+  assert.equal(inspectLock(f.repo).status,"held");
+  const current=recoveryProof(f);
+  assert.equal(reconcile(f.attempt,current).settled,true);
+  assert.equal(inspectLock(f.repo).status,"free");
+});
+
+test("diagnosis stays available after plugin drift and does not change task state", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  const before=fs.readFileSync(path.join(f.attempt,"state.json"),"utf8");
+  fs.appendFileSync(f.companion,"\n// new plugin bytes\n");
+  const diagnostic=diagnose(f.attempt);
+  assert.match(diagnostic.diagnostic.observation.error,/pinned companion changed/);
+  assert.equal(fs.readFileSync(path.join(f.attempt,"state.json"),"utf8"),before);
+  assert.equal(inspectLock(f.repo).status,"held");
+  assert.equal(reconcile(f.attempt,recoveryProof(f)).settled,true);
+});
+
+test("a live or omitted known worker prevents recovery despite a claimed terminal turn", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  f.change(value=>{value.jobs['job-1'].pid=process.pid;});operate("status",f.attempt);
+  const proof=recoveryProof(f);
+  assert.throws(()=>reconcile(f.attempt,proof),/known worker/);
+  assert.throws(()=>reconcile(f.attempt,{...proof,processIds:[process.pid]}),/still alive/);
+  assert.equal(inspectLock(f.repo).status,"held");
+});
+
+test("a recorded worker that has exited can be reconciled with host terminal evidence", t => {
+  const f=fixture(t);launch(f.input,f.attempt);
+  const pid=Number(execFileSync(process.execPath,["-e","console.log(process.pid)"],{encoding:"utf8"}).trim());
+  f.change(value=>{value.jobs['job-1'].pid=pid;});operate("status",f.attempt);
+  const proof={...recoveryProof(f),processIds:[pid]};
+  assert.throws(()=>reconcile(f.attempt,{...proof,jobId:"other"}),/jobId mismatch/);
+  assert.throws(()=>reconcile(f.attempt,{...proof,source:{kind:"task-summary",reference:"claims done"}}),/host lifecycle/);
+  assert.equal(reconcile(f.attempt,proof).settled,true);
+  assert.equal(inspectLock(f.repo).status,"free");
+});
+
+test("new lifecycle evidence revokes a recovered settlement", t => {
+  const f=fixture(t);launch(f.input,f.attempt);operate("cancel",f.attempt);
+  reconcile(f.attempt,recoveryProof(f));
+  f.change(value=>{value.jobs['job-1'].status='running';value.jobs['job-1'].updatedAt=new Date(Date.now()+1000).toISOString();});
+  assert.throws(()=>operate("status",f.attempt),/contradicts recovery/);
+  assert.equal(read(path.join(f.attempt,"state.json")).settled,false);
+});
+
+test("a failed lease release can be retried without inventing a new recovery", t => {
+  const f=fixture(t);launch(f.input,f.attempt);operate("cancel",f.attempt);
+  const proof=recoveryProof(f), rename=fs.renameSync;
+  const mocked=t.mock.method(fs,"renameSync",(from,to)=>{
+    if(String(from).endsWith('/agent-skills-controllers/active')) throw new Error('fixture release I/O failure');
+    return rename(from,to);
+  });
+  assert.throws(()=>reconcile(f.attempt,proof),/release I\/O failure/);
+  assert.equal(inspectLock(f.repo).status,"held");
+  assert.equal(read(path.join(f.attempt,"state.json")).leaseReleased,false);
+  mocked.mock.restore();
+  assert.equal(reconcile(f.attempt,proof).leaseReleased,true);
+  assert.equal(inspectLock(f.repo).status,"free");
 });

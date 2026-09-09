@@ -23,6 +23,14 @@ a writer's worktree, confirm the old child and its processes have terminated.
 If the necessary native capability is missing, block that assignment and keep
 snapshot-only available. All children remain siblings of this controller.
 
+## Controller ownership
+
+Before any local source/worktree or GitHub write, read and follow
+[controller coordination](references/controller-coordination.md). Acquire the
+repository lease, or adopt the timer's exact supplied token. Hold it through
+all children and publication; release only with observed quiescence evidence.
+`--snapshot-only` takes no write lease.
+
 ## Shared workflow
 
 Resolve `BABYSIT_SKILL_DIR` to this loaded skill's directory. Read

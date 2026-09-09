@@ -6,6 +6,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { acquireLock, assertLock, releaseLock, inspectLock, assertProcessesStopped } from "./lib/repository-lock.mjs";
 
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
@@ -79,8 +80,12 @@ function invalidate(state, reason) {
   Object.assign(state, { status: state.priorSettlement ? "needs-reconciliation" : "unknown",
     settled: false, complete: false, terminalTurn: false, error: reason });
 }
-function release(identity) {
+function release(identity, assessment) {
   if (identity.lock && fs.existsSync(identity.lock) && fs.readFileSync(identity.lock, "utf8") === identity.attempt) fs.unlinkSync(identity.lock);
+  if (identity.controllerLease) releaseLock(identity.cwd, identity.controllerLease.token, {
+    ...identity.controllerLease, observedAt: new Date().toISOString(), allTasksStopped: true,
+    processesStopped: true, processIds: assessment.processIds ?? [], evidence: assessment.lifecycleEvidence,
+  });
 }
 
 export function launch(input, attempt) {
@@ -130,21 +135,28 @@ export function launch(input, attempt) {
   if (relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))) {
     throw new Error("attempt directory must be outside the source worktree");
   }
-  fs.mkdirSync(output, { recursive: false, mode: 0o700 });
-  const commonDir = fs.realpathSync(git(workspaceRoot, "rev-parse", "--path-format=absolute", "--git-common-dir"));
-  identity.lock = path.join(commonDir, `codex-implementation-${hash(workspaceRoot)}.lock`);
-  fs.writeFileSync(identity.lock, output, { flag: "wx", mode: 0o600 });
-  write(path.join(output, "assignment.json"), identity);
-  fs.writeFileSync(path.join(output, "baseline.patch"), execFileSync("git", ["-C", workspaceRoot, "diff", "HEAD", "--binary"]), { mode: 0o600 });
-  const promptFile = path.join(output, "prompt.md");
-  fs.writeFileSync(promptFile, input.prompt, { mode: 0o600 });
-  const state = { status: "launching", jobId: null, threadId: null, settled: false };
-  update(output, state);
+  if (fs.existsSync(output)) throw new Error("attempt directory already exists");
+  const lease = acquireLock(cwd, { runtime: "companion", runId: identity.attemptId, sessionId: identity.sessionId ?? "unknown", recordPath: output });
+  if (!lease.acquired) throw new Error(`repository controller busy: ${JSON.stringify(lease.owner)}`);
+  identity.controllerLease = lease.owner;
+  const state = { status: "launching", jobId: null, threadId: null, settled: false, leaseReleased: false };
+  let dispatched = false;
+  let createdAttempt = false;
   try {
+    fs.mkdirSync(output, { recursive: false, mode: 0o700 });
+    createdAttempt = true;
+    const promptFile = path.join(output, "prompt.md");
+    const prompt = `Attempt ID: ${identity.attemptId}\n\n${input.prompt}`;
+    identity.promptHash = hash(prompt);
+    write(path.join(output, "assignment.json"), identity);
+    fs.writeFileSync(path.join(output, "baseline.patch"), execFileSync("git", ["-C", workspaceRoot, "diff", "HEAD", "--binary"]), { mode: 0o600 });
+    fs.writeFileSync(promptFile, prompt, { mode: 0o600 });
+    update(output, state);
     const args = ["task", "--background", "--fresh", "--prompt-file", promptFile];
     if (input.mode === "write") args.push("--write");
     if (input.model) args.push("--model", input.model);
     if (input.effort) args.push("--effort", input.effort);
+    dispatched = true;
     const receipt = command(identity, args);
     write(path.join(output, "launch.json"), receipt);
     if (typeof receipt.jobId !== "string" || !receipt.jobId || receipt.status !== "queued") throw new Error("invalid launch receipt");
@@ -152,25 +164,40 @@ export function launch(input, attempt) {
     update(output, state);
     return { attempt: output, ...state };
   } catch (error) {
-    Object.assign(state, { status: "unknown", error: error.message });
-    update(output, state);
+    Object.assign(state, { status: dispatched ? "unknown" : "not-started", error: error.message });
+    if (createdAttempt) update(output, state);
+    if (!dispatched) release(identity, { lifecycleEvidence: "Preparation failed before companion dispatch", processIds: [] });
     throw error;
   }
 }
 
 export function operate(action, attempt) {
   const { identity, state } = load(attempt);
+  let phase = "validate";
   try {
+    if (state.settled && !sameSnapshot(state.snapshot, snapshot(identity.workspaceRoot))) throw new Error("source snapshot contradicts settlement");
     if (!state.jobId) throw new Error("launch outcome is unknown; inspect the saved attempt before recovery");
+    phase = "query";
     const observation = command(identity, ["status", state.jobId]);
+    phase = "validate";
     if (observation.workspaceRoot !== identity.workspaceRoot) throw new Error("workspace identity mismatch");
     assertJob(identity, state, observation.job);
     write(path.join(attempt, "status.json"), observation);
+    if (state.reconciliation && state.settled) {
+      const newer = Date.parse(observation.job.updatedAt) > Date.parse(state.reconciliation.observedAt);
+      if (newer && (observation.job.status !== state.status || (observation.job.turnId && observation.job.turnId !== state.turnId))) {
+        throw new Error("new lifecycle observation contradicts recovery");
+      }
+      state.lastObservation = observation;
+      update(attempt, state);
+      return state;
+    }
     if (state.settled && (observation.job.status !== state.status ||
         !sameSnapshot(state.snapshot, snapshot(identity.workspaceRoot)))) {
       throw new Error("observation contradicts the settled lifecycle or source snapshot");
     }
-    Object.assign(state, { status: observation.job.status, threadId: observation.job.threadId ?? state.threadId });
+    Object.assign(state, { status: observation.job.status, threadId: observation.job.threadId ?? state.threadId,
+      turnId: observation.job.turnId ?? state.turnId ?? null, workerPid: observation.job.pid ?? state.workerPid ?? null });
     delete state.error;
     update(attempt, state);
     if (action === "status") return state;
@@ -184,7 +211,9 @@ export function operate(action, attempt) {
     }
     if (!["completed", "failed", "cancelled"].includes(state.status)) throw new Error("task is not terminal");
     const before = snapshot(identity.workspaceRoot);
+    phase = "query";
     const result = command(identity, ["result", state.jobId]);
+    phase = "validate";
     assertJob(identity, state, result.job);
     assertJob(identity, state, result.storedJob);
     if (result.storedJob.status !== state.status || result.job.status !== state.status) throw new Error("terminal status mismatch");
@@ -205,7 +234,8 @@ export function operate(action, attempt) {
     update(attempt, state);
     return state;
   } catch (error) {
-    invalidate(state, error.message);
+    if (phase === "query" && state.settled) state.observationError = error.message;
+    else invalidate(state, error.message);
     update(attempt, state);
     throw error;
   }
@@ -214,12 +244,14 @@ export function operate(action, attempt) {
 export function assess(attempt, assessment, complete = false) {
   operate("result", attempt);
   const { identity, state } = load(attempt);
+  if (identity.controllerLease && !state.settled) assertLock(identity.cwd, identity.controllerLease.token);
   if (assessment.attemptId !== identity.attemptId || assessment.jobId !== state.jobId || assessment.threadId !== state.threadId) {
     throw new Error("assessment belongs to another attempt, job, or thread");
   }
   if (!state.terminalTurn || !sameSnapshot(state.snapshot, snapshot(identity.workspaceRoot))) throw new Error("terminal turn or stable source evidence is missing");
   if (!sameSnapshot(assessment.snapshot, state.snapshot)) throw new Error("assessment does not cover the current source snapshot");
   if (assessment.processesStopped !== true || !assessment.lifecycleEvidence?.trim()) throw new Error("controller must verify task and process termination");
+  assertProcessesStopped(assessment.processIds ?? []);
   if (identity.mode === "read" && !sameSnapshot(identity.baseline, state.snapshot)) throw new Error("read-only task changed source");
   if (complete) {
     if (state.status !== "completed") throw new Error("failed or unknown task cannot be complete");
@@ -233,7 +265,73 @@ export function assess(attempt, assessment, complete = false) {
   state.settled = true;
   state.complete = complete;
   update(attempt, state);
-  release(identity);
+  release(identity, assessment);
+  state.leaseReleased = true;
+  update(attempt, state);
+  return state;
+}
+
+export function diagnose(attempt) {
+  const { identity, state } = load(attempt);
+  let observation;
+  try { observation = command(identity, state.jobId ? ["status", state.jobId] : ["status", "--all"], { allSessions: !state.jobId }); }
+  catch (error) { observation = { error: error.message }; }
+  const diagnostic = { schemaVersion: 1, id: crypto.randomUUID(), attemptId: identity.attemptId,
+    createdAt: new Date().toISOString(), assignmentHash: hash(fs.readFileSync(path.join(attempt, "assignment.json"))),
+    snapshot: snapshot(identity.workspaceRoot), state, observation, lease: inspectLock(identity.cwd) };
+  const directory = path.join(attempt, "diagnostics");
+  fs.mkdirSync(directory, { recursive: true });
+  const file = path.join(directory, `${diagnostic.id}.json`);
+  write(file, diagnostic);
+  return { file, hash: hash(fs.readFileSync(file)), diagnostic };
+}
+
+export function reconcile(attempt, proof) {
+  const { identity, state } = load(attempt);
+  const file = fs.realpathSync(proof.diagnosticFile);
+  if (path.dirname(file) !== fs.realpathSync(path.join(attempt, "diagnostics")) ||
+      hash(fs.readFileSync(file)) !== proof.diagnosticHash) throw new Error("diagnostic identity mismatch");
+  const diagnostic = read(file);
+  if (diagnostic.attemptId !== identity.attemptId || proof.attemptId !== identity.attemptId ||
+      diagnostic.assignmentHash !== hash(fs.readFileSync(path.join(attempt, "assignment.json"))) ||
+      !sameSnapshot(diagnostic.snapshot, proof.snapshot) || !sameSnapshot(proof.snapshot, snapshot(identity.workspaceRoot))) {
+    throw new Error("recovery identity or source snapshot changed");
+  }
+  if (state.settled && state.reconciliation?.proofHash === hash(JSON.stringify(proof))) {
+    release(identity, proof);
+    state.leaseReleased = true;
+    update(attempt, state);
+    return state;
+  }
+  if (!["native-lifecycle", "app-server"].includes(proof.source?.kind) || !proof.source.reference?.trim() ||
+      !Number.isFinite(Date.parse(proof.observedAt)) || Date.parse(proof.observedAt) < Date.parse(diagnostic.createdAt)) {
+    throw new Error("fresh host lifecycle evidence is required");
+  }
+  for (const field of ["jobId", "threadId", "turnId"]) {
+    if (typeof proof[field] !== "string" || !proof[field] || (state[field] && state[field] !== proof[field])) throw new Error(`recovery ${field} mismatch`);
+  }
+  if (!state.jobId && (!identity.promptHash || proof.launchPromptHash !== identity.promptHash || proof.requestCwd !== identity.cwd)) {
+    throw new Error("unknown launch requires exact request evidence");
+  }
+  if (proof.serverTurn?.threadId !== proof.threadId || proof.serverTurn?.id !== proof.turnId ||
+      !["completed", "failed", "interrupted"].includes(proof.serverTurn.status) ||
+      proof.processesStopped !== true || proof.allTasksStopped !== true || !proof.lifecycleEvidence?.trim()) {
+    throw new Error("server turn and all task processes must be proven terminal");
+  }
+  assertProcessesStopped(proof.processIds);
+  if (state.workerPid && !proof.processIds.includes(state.workerPid)) throw new Error("known worker process is missing from recovery evidence");
+  if (identity.controllerLease) assertLock(identity.cwd, identity.controllerLease.token);
+  const recoveryFile = path.join(attempt, `recovery-${crypto.randomUUID()}.json`);
+  write(recoveryFile, { previousState: state, proof });
+  Object.assign(state, { jobId: proof.jobId, threadId: proof.threadId, turnId: proof.turnId,
+    status: proof.serverTurn.status === "interrupted" ? "cancelled" : proof.serverTurn.status,
+    terminalTurn: true, settled: true, complete: false, snapshot: proof.snapshot,
+    reconciliation: { file: recoveryFile, observedAt: proof.observedAt, proofHash: hash(JSON.stringify(proof)) } });
+  delete state.error;
+  update(attempt, state);
+  release(identity, proof);
+  state.leaseReleased = true;
+  update(attempt, state);
   return state;
 }
 
@@ -241,8 +339,10 @@ function main(argv) {
   const [action, first, second] = argv;
   if (action === "launch" && first && second && argv.length === 3) return launch(read(first), second);
   if (["status", "result", "cancel"].includes(action) && first && argv.length === 2) return operate(action, first);
+  if (action === "diagnose" && first && argv.length === 2) return diagnose(first);
+  if (action === "reconcile" && first && second && argv.length === 3) return reconcile(first, read(second));
   if (["settle", "complete"].includes(action) && first && second && argv.length === 3) return assess(first, read(second), action === "complete");
-  throw new Error("usage: task.mjs launch ASSIGNMENT NEW_ATTEMPT | status|result|cancel ATTEMPT | settle|complete ATTEMPT ASSESSMENT");
+  throw new Error("usage: task.mjs launch ASSIGNMENT NEW_ATTEMPT | status|result|cancel|diagnose ATTEMPT | settle|complete|reconcile ATTEMPT PROOF");
 }
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { console.log(JSON.stringify({ ok: true, result: main(process.argv.slice(2)) })); }

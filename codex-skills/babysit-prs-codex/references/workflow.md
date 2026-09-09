@@ -122,6 +122,10 @@ graph correctly.
 
 ### Main controller
 
+Before any write, follow [controller coordination](controller-coordination.md).
+The two native entrypoints and timer use one repository lease. Snapshot-only
+remains read-only and does not acquire ownership.
+
 Use the session's configured model and reasoning settings through the loaded
 native adapter. Respect explicit user choices and runtime overrides. Record
 observed model/effort when available; otherwise record `unknown`. A model name
@@ -131,6 +135,10 @@ GitHub writes, and merge decisions.
 
 At startup, resolve `BABYSIT_SKILL_DIR` from the loaded entrypoint, check
 authenticated `gh` access, and verify that all six checkpoint prompts exist. Create the run directory once:
+
+For a timer invocation, reuse its supplied `CANONICAL_RUN_DIR` and
+`BABYSIT_RUN_ID` after validating lease adoption; create that directory if
+needed. The following initialization is for manual invocations only:
 
 ```bash
 mkdir -p /home/chin39/Documents/play/stocks/.claude/babysit-prs/runs

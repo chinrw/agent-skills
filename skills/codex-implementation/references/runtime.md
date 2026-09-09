@@ -2,7 +2,10 @@
 
 The controller supplies assignments and assessments. Children write source and
 their own results; they do not modify this controller-owned attempt directory.
-The helper is self-contained and uses Node and Git. Resolve
+The helper uses Node and Git. Its repository-lock module shares the native
+package's implementation through a source symlink. Materialize links when
+copying this skill to a standalone location, for example `cp -RL` into a fresh
+destination. Resolve
 `CODEX_IMPLEMENTATION_SKILL_DIR` from the loaded skill, independently of cwd.
 
 ## Launch and identity
@@ -49,10 +52,13 @@ Unchanged status/result queries preserve settlement and acceptance. Contrary
 lifecycle, source, or collected-result evidence clears current acceptance and
 retains the old settlement under `priorSettlement` for reconciliation.
 
-A workspace lock covers helper-managed attempts. The preflight also inspects
+A Git-common-dir controller lease covers updated native, timer, and companion
+entrypoints. The preflight also inspects
 companion jobs across sessions. Neither protects against actors bypassing this
 workflow; the controller must establish absence of other writers. Do not remove
 a retained lock on age alone. An unknown launch may already have started work.
+The helper's attempt ID is included in the dispatched prompt and its hash is
+recorded, so an unknown launch can be matched to exact request evidence.
 
 ## Runtime capabilities
 
@@ -90,6 +96,44 @@ A cancelled marker or launcher exception therefore does not establish a terminal
 server turn. The helper retains the lock in those cases. Preserve the record,
 inspect the actual server turn and processes, and report unresolved termination;
 do not start another writer or infer safety from a quiet log.
+Use the controlled recovery operations below when an independent host interface
+can establish the missing terminal facts.
+
+## Controlled diagnosis and recovery
+
+`diagnose ATTEMPT` writes an immutable diagnostic with its hash, saved identity,
+current semantic source snapshot, repository owner, and latest pinned-runtime
+observation or error. It does not change settlement or release ownership and
+remains available when the pinned plugin is missing or changed.
+
+`reconcile ATTEMPT PROOF_JSON` accepts a controller-supplied proof containing:
+
+- `diagnosticFile`, `diagnosticHash`, `attemptId`, and the exact diagnostic
+  `snapshot`; source and assignment bytes must still match.
+- `jobId`, `threadId`, and `turnId`, matching every identity already known.
+- `source.kind` (`app-server` or `native-lifecycle`) and `source.reference`
+  identifying the actual independent host observation.
+- `observedAt`, at or after the diagnostic, and `serverTurn` with exact `id`,
+  `threadId`, and terminal `status` (`completed`, `failed`, or `interrupted`).
+- `allTasksStopped`, `processesStopped`, `processIds`, and `lifecycleEvidence`.
+  Every known worker PID must be included. Live or unobservable PIDs reject it.
+- For an unknown launch: `launchPromptHash` and canonical `requestCwd`, verified
+  against the actual runtime request, including the unique attempt marker.
+
+Fetch this evidence from the host independently of the task's own claims. The
+helper checks its bindings and local process liveness; it cannot authenticate
+the truth of a caller-supplied remote receipt or prove that a PID list is complete.
+Unknown server state, incomplete process inventory, stale source, and guessed
+task identity keep the lease. A result file or cancellation marker is insufficient.
+
+Successful reconciliation preserves the old state and proof, settles the stable
+source, and releases the exact lease. It sets `complete: false`; independent
+acceptance remains a separate action. Fresh continuation can then use `previous`.
+`leaseReleased` is separate from settlement. If release I/O fails, retain the
+proof and retry the same recovery; a recorded settlement cannot bypass a held
+repository lease.
+Older companion bookkeeping cannot overwrite newer host-derived settlement;
+new contradictory lifecycle or source evidence requires reconciliation again.
 
 After collecting a terminal result, prepare an assessment outside the worktree:
 

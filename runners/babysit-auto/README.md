@@ -5,6 +5,11 @@ before starting a model session. When work is due, `run-controller.sh` starts
 one top-level Codex controller; reviews and checkpoints use native subagents
 inside that session.
 
+Before dispatch, the runner acquires the same repository controller lease as
+manual Codex, Claude, and companion workflows. The native controller adopts
+its supplied token and releases it after collecting all children/processes.
+Exit without release leaves a durable lease for controlled recovery.
+
 ## Gate and controller
 
 ```bash
@@ -86,6 +91,8 @@ switch an installed skill snapshot.
 
 The timer checks every five minutes with jitter. The unit holds `flock` during
 the controller run and bounds it with `timeout --signal=INT 3300`.
+`flock` suppresses duplicate timer processes; the shared Git-common-dir lease
+coordinates all updated entrypoints. Timeout does not reclaim that lease.
 
 | Event | Unit outcome |
 |---|---|
@@ -116,10 +123,16 @@ validate the marker/state contract against the in-repo Codex skill.
 
 - Neither native entrypoint has been exercised end to end against live PRs.
   Publishing, thread resolution, and merging remain unverified in unattended use.
-- Busy detection is heuristic. A controller with no recent artifact write or
-  worktree process can be missed; two manual invocations do not share `flock`.
+- Busy detection is heuristic; the shared lease decides write ownership.
+  All installed entrypoints must be updated before claiming cross-runtime
+  coordination. Older entrypoints and separate clones are outside that protocol.
 - A gate error exiting 2 is also skipped by `ExecCondition`; no notifier is wired.
 - Spec-only drift does not wake the gate until another signal changes.
 - The gate cannot identify fixes committed locally but never pushed. The skill
   must recover such work before discarding residual worktrees.
 - Native child concurrency is bounded per invocation, not across the host.
+
+For exact acquisition, timer adoption, and evidence-bound release, see
+[controller coordination](../../codex-skills/babysit-prs-codex/references/controller-coordination.md).
+Unknown owners require diagnosis and actual host termination evidence; there
+is no TTL or force-unlock command.

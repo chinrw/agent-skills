@@ -45,12 +45,16 @@ compatibility and have no effect on configuration or permissions.
 | `mutation-evidence.mjs` | Focused mutation experiments for test-coverage claims |
 | `check-source-clean.mjs` | Source cleanliness and temporary-probe checks |
 | `worktree-guard.mjs` | Worktree ownership records and durable local commit recovery |
+| `controller-lock.mjs` | Shared native/timer/companion controller ownership and guarded release |
 | `external-review.mjs` | Local observation, receipt, retry-state and marker handoff |
 | `external_review.py` | Deterministic external-review policy used by the handoff |
 
 Existing `.claude/babysit-prs.json`, run directories, worktrees, and v2 GitHub
 markers remain compatible. These paths hold state; the entrypoint selects the
 runtime. The standalone `codex-implementation` skill below is separate.
+Updated entrypoints coordinate through one Git-common-dir lease. Unknown owners
+remain blocked until actual termination evidence is available; separate clones
+and older installed entrypoints require their own migration/coordination checks.
 
 ### Install and verify
 
