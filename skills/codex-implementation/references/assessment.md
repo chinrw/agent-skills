@@ -38,6 +38,15 @@ still need their status and reason in the final report.
   exactly one evidence-backed PASS for each assigned criterion, and independent
   verification PASS. It rereads the exact result and rejects source drift.
 
+Both operations require `processIds` to include the worker PID already recorded
+by the helper and every other task process found by the controller. Omitting a
+known worker, including through an empty list, rejects settlement and completion.
+Listed live or unobservable processes also reject them. The validated inventory
+is preserved in the assessment and lease release receipt.
+Use PIDs in the helper's host process namespace. A command running inside a
+sandbox may report a different PID; map it through host process observations
+before checking liveness. An inaccessible process is not evidence of exit.
+
 The helper validates records and bindings; it cannot independently establish
 the truth of controller-supplied lifecycle or test evidence. Inspect real task
 and process state before making those assertions. An ordinary `failed` job

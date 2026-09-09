@@ -4,6 +4,9 @@ Baseline: `c703134bcc806c5a18af8e10bdbef66b2b0c3a30`.
 Input ZIP SHA-256:
 `2b35e22fe5f03559fb7c3b92dec9851c56d74d6cfa9d7b0666875d5ca6e3ca3a`.
 
+The subsequent [round-three audit](round3-audit.md) fixes two remaining lifecycle
+boundaries and records separate validation against the real local host.
+
 | Round | Changes | Evidence |
 |---|---|---|
 | Correctness | Preserve settlement during unchanged observations; include staged/unstaged diffs and index stages in source identity. | The original 13 tests stayed green. The supplied three regressions failed before the fix and passed afterward; additional cases cover repeated collection, contrary evidence, and conflict-stage changes. |

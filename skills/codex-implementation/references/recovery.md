@@ -24,12 +24,21 @@ helper checks its bindings and local process liveness; it cannot authenticate
 the truth of a caller-supplied remote receipt or prove that a PID list is complete.
 Unknown server state, incomplete process inventory, stale source, and guessed
 task identity keep the lease. A result file or cancellation marker is insufficient.
+Companion 1.0.6's broker can reject concurrent reads during an active turn while
+still accepting its interrupt request. After interruption, retry the exact turn
+observation; a busy response leaves lifecycle unknown. Check host process exit
+separately because an interrupted turn does not prove all commands have stopped.
 
 Successful reconciliation preserves the old state and proof, settles the stable
 source, and releases the exact lease. It sets `complete: false`; independent
 acceptance remains a separate action. Fresh continuation can then use `previous`.
+Direct acceptance of the old attempt still needs its pinned companion. If that
+runtime changed or vanished, use fresh continuation with the original assignment,
+stable changes, and remaining checks; reconciliation does not bypass runtime
+pinning to mark the old attempt complete.
 `leaseReleased` is separate from settlement. If release I/O fails, retain the
 proof and retry the same recovery; a recorded settlement cannot bypass a held
-repository lease.
+repository lease. This also covers failure after the lease directory moved:
+retry repairs the matching retained receipt without touching a later owner.
 Older companion bookkeeping cannot overwrite newer host-derived settlement;
 new contradictory lifecycle or source evidence requires reconciliation again.

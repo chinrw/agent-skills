@@ -64,26 +64,62 @@ export function assertProcessesStopped(ids) {
   }
 }
 
+function releaseReceipt(destination, owner) {
+  const file = path.join(destination, "release.json");
+  let stat;
+  try { stat = fs.lstatSync(file); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  if (!stat.isFile()) throw new Error("release receipt must be an ordinary file");
+  const receipt = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (receipt.owner?.token !== owner.token || receipt.owner?.runId !== owner.runId ||
+      receipt.owner?.commonDir !== owner.commonDir) throw new Error("release receipt identity mismatch");
+  return receipt;
+}
+
+function publishReceipt(destination, owner, proof) {
+  const temporary = path.join(destination, `release.${randomUUID()}.json`);
+  try {
+    fs.writeFileSync(temporary, JSON.stringify({ owner, proof }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+    // Publish complete bytes without replacing another releaser's receipt.
+    try { fs.linkSync(temporary, path.join(destination, "release.json")); }
+    catch (error) { if (error.code !== "EEXIST") throw error; }
+    releaseReceipt(destination, owner);
+  } finally {
+    try { fs.unlinkSync(temporary); }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+  }
+}
+
 export function releaseLock(checkout, token, proof) {
   const paths = locations(checkout);
   if (!/^[a-f0-9-]{36}$/.test(token ?? "")) throw new Error("invalid lease token");
   const destination = path.join(paths.released, token);
-  if (fs.existsSync(destination)) {
-    const receipt = JSON.parse(fs.readFileSync(path.join(destination, "release.json"), "utf8"));
-    if (receipt.owner.token !== token) throw new Error("release receipt identity mismatch");
-    return { released: true, alreadyReleased: true, receipt: destination };
+  let retained;
+  try { retained = fs.lstatSync(destination); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  let owner;
+  if (retained) {
+    if (!retained.isDirectory()) throw new Error("released lease must be an ordinary directory");
+    const ownerFile = path.join(destination, "owner.json");
+    if (!fs.lstatSync(ownerFile).isFile()) throw new Error("released owner must be an ordinary file");
+    owner = JSON.parse(fs.readFileSync(ownerFile, "utf8"));
+    if (owner.schemaVersion !== 1 || owner.token !== token || owner.commonDir !== paths.commonDir ||
+        !owner.runId || !owner.runtime || !Number.isFinite(Date.parse(owner.createdAt))) throw new Error("released owner identity mismatch");
+    if (releaseReceipt(destination, owner)) return { released: true, alreadyReleased: true, receipt: destination };
+  } else {
+    ({ owner } = assertLock(checkout, token));
   }
-  const { owner } = assertLock(checkout, token);
   if (proof?.token !== token || proof.runId !== owner.runId || proof.commonDir !== owner.commonDir ||
       proof.allTasksStopped !== true || proof.processesStopped !== true || !proof.evidence?.trim() ||
       !Number.isFinite(Date.parse(proof.observedAt)) || Date.parse(proof.observedAt) < Date.parse(owner.createdAt)) {
     throw new Error("lease release requires exact owner and observed quiescence evidence");
   }
   assertProcessesStopped(proof.processIds);
-  fs.mkdirSync(paths.released, { recursive: true });
-  // Keep the nonempty destination: a concurrent replay cannot rename a later
-  // owner's active directory over this receipt. No TTL or unlink-based steal.
-  fs.renameSync(paths.active, destination);
-  fs.writeFileSync(path.join(destination, "release.json"), JSON.stringify({ owner, proof }, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-  return { released: true, alreadyReleased: false, receipt: destination };
+  if (!retained) {
+    fs.mkdirSync(paths.released, { recursive: true });
+    // Keep the nonempty destination so an old replay cannot move a later owner.
+    fs.renameSync(paths.active, destination);
+  }
+  publishReceipt(destination, owner, proof);
+  return { released: true, alreadyReleased: Boolean(retained), receipt: destination };
 }

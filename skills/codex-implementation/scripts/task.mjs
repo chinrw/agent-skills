@@ -87,6 +87,10 @@ function release(identity, assessment) {
     processesStopped: true, processIds: assessment.processIds ?? [], evidence: assessment.lifecycleEvidence,
   });
 }
+function assertTaskProcessesStopped(state, ids) {
+  assertProcessesStopped(ids);
+  if (state.workerPid && !ids.includes(state.workerPid)) throw new Error("known worker process is missing from termination evidence");
+}
 
 export function launch(input, attempt) {
   if (!input.prompt?.trim() || !["read", "write"].includes(input.mode)) throw new Error("prompt and mode (read/write) are required");
@@ -251,7 +255,7 @@ export function assess(attempt, assessment, complete = false) {
   if (!state.terminalTurn || !sameSnapshot(state.snapshot, snapshot(identity.workspaceRoot))) throw new Error("terminal turn or stable source evidence is missing");
   if (!sameSnapshot(assessment.snapshot, state.snapshot)) throw new Error("assessment does not cover the current source snapshot");
   if (assessment.processesStopped !== true || !assessment.lifecycleEvidence?.trim()) throw new Error("controller must verify task and process termination");
-  assertProcessesStopped(assessment.processIds ?? []);
+  assertTaskProcessesStopped(state, assessment.processIds ?? []);
   if (identity.mode === "read" && !sameSnapshot(identity.baseline, state.snapshot)) throw new Error("read-only task changed source");
   if (complete) {
     if (state.status !== "completed") throw new Error("failed or unknown task cannot be complete");
@@ -318,8 +322,7 @@ export function reconcile(attempt, proof) {
       proof.processesStopped !== true || proof.allTasksStopped !== true || !proof.lifecycleEvidence?.trim()) {
     throw new Error("server turn and all task processes must be proven terminal");
   }
-  assertProcessesStopped(proof.processIds);
-  if (state.workerPid && !proof.processIds.includes(state.workerPid)) throw new Error("known worker process is missing from recovery evidence");
+  assertTaskProcessesStopped(state, proof.processIds);
   if (identity.controllerLease) assertLock(identity.cwd, identity.controllerLease.token);
   const recoveryFile = path.join(attempt, `recovery-${crypto.randomUUID()}.json`);
   write(recoveryFile, { previousState: state, proof });

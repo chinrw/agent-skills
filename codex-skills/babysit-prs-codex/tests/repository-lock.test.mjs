@@ -86,6 +86,84 @@ test("an old release replay cannot remove the next owner's lease", t => {
   assert.equal(inspectLock(repo).owner.token,second.owner.token);
 });
 
+for (const phase of ["before rename", "after rename", "before receipt write", "partial receipt write", "after receipt write", "after receipt install"]) {
+  test(`release can resume after ${phase} without disturbing the next owner`, t => {
+    const { repo } = fixture(t);
+    const first = acquireLock(repo, { runtime: "claude", runId: "one" });
+    const evidence = proof(first.owner);
+    const rename = fs.renameSync, write = fs.writeFileSync, link = fs.linkSync;
+    const fail = () => { throw Object.assign(new Error(`fixture failure ${phase}`), { code: "EIO" }); };
+    t.mock.method(fs, "renameSync", (from, to) => {
+      if (from === first.active && phase === "before rename") fail();
+      const result = rename(from, to);
+      if (from === first.active && phase === "after rename") fail();
+      return result;
+    });
+    t.mock.method(fs, "writeFileSync", (file, ...args) => {
+      const receipt = /^release(?:\..+)?\.json$/.test(path.basename(String(file)));
+      if (receipt && phase === "before receipt write") fail();
+      if (receipt && phase === "partial receipt write") { write(file, "{", args[1]); fail(); }
+      const result = write(file, ...args);
+      if (receipt && phase === "after receipt write") fail();
+      return result;
+    });
+    t.mock.method(fs, "linkSync", (from, to) => {
+      const result = link(from, to);
+      if (path.basename(to) === "release.json" && phase === "after receipt install") fail();
+      return result;
+    });
+    assert.throws(() => releaseLock(repo, first.owner.token, evidence), /fixture failure/);
+    t.mock.restoreAll();
+    if (phase === "before rename") {
+      assert.equal(inspectLock(repo).owner.token, first.owner.token);
+      assert.equal(releaseLock(repo, first.owner.token, evidence).released, true);
+    }
+    const second = acquireLock(repo, { runtime: "timer", runId: "two" });
+    assert.equal(second.acquired, true);
+    assert.equal(releaseLock(repo, first.owner.token, evidence).released, true);
+    const receipt = JSON.parse(fs.readFileSync(path.join(first.released, first.owner.token, "release.json"), "utf8"));
+    assert.deepEqual(receipt, { owner: first.owner, proof: evidence });
+    assert.equal(inspectLock(repo).owner.token, second.owner.token);
+    assert.equal(releaseLock(repo, first.owner.token, evidence).alreadyReleased, true);
+    assert.equal(inspectLock(repo).owner.token, second.owner.token);
+  });
+}
+
+test("an incomplete release requires its retained owner and quiescence evidence", t => {
+  const { repo } = fixture(t);
+  const first = acquireLock(repo, { runtime: "claude", runId: "one" });
+  const destination = path.join(first.released, first.owner.token);
+  fs.mkdirSync(first.released);
+  fs.renameSync(first.active, destination);
+  const next = acquireLock(repo, { runtime: "codex", runId: "two" });
+  assert.throws(() => releaseLock(repo, first.owner.token, { ...proof(first.owner), runId: "wrong" }), /quiescence/);
+  assert.throws(() => releaseLock(repo, first.owner.token, { ...proof(first.owner), processIds: [process.pid] }), /still alive/);
+  fs.writeFileSync(path.join(destination, "owner.json"), JSON.stringify(next.owner));
+  assert.throws(() => releaseLock(repo, first.owner.token, proof(first.owner)), /identity mismatch/);
+  assert.equal(inspectLock(repo).owner.token, next.owner.token);
+});
+
+test("concurrent receipt publication preserves the first receipt and later owner", t => {
+  const { repo } = fixture(t);
+  const first = acquireLock(repo, { runtime: "claude", runId: "one" });
+  const concurrentProof = { ...proof(first.owner), evidence: "Concurrent controller verified the same stopped tasks" };
+  const link = fs.linkSync;
+  let competing = true, next;
+  t.mock.method(fs, "linkSync", (from, to) => {
+    if (competing) {
+      competing = false;
+      releaseLock(repo, first.owner.token, concurrentProof);
+      next = acquireLock(repo, { runtime: "codex", runId: "two" });
+    }
+    return link(from, to);
+  });
+  assert.equal(releaseLock(repo, first.owner.token, proof(first.owner)).released, true);
+  const receipt = JSON.parse(fs.readFileSync(path.join(first.released, first.owner.token, "release.json"), "utf8"));
+  assert.deepEqual(receipt.proof, concurrentProof);
+  assert.equal(next.acquired, true);
+  assert.equal(inspectLock(repo).owner.token, next.owner.token);
+});
+
 test("legacy companion locks block entrypoint migration", t => {
   const { repo } = fixture(t); const state = inspectLock(repo);
   fs.writeFileSync(path.join(state.commonDir,`codex-implementation-${'a'.repeat(64)}.lock`),'/unknown/attempt');

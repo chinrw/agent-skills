@@ -74,9 +74,13 @@ unobservable PIDs; the controller must verify that the list is complete.
 node "$BABYSIT_SKILL_DIR/scripts/controller-lock.mjs" release "$CHECKOUT" "$PROOF_JSON"
 ```
 
-Release moves the owned lease into a durable receipt directory. Replaying an
-old release cannot remove a new owner's lock. Keep receipts; retention is a
-separate policy. Controller statements must reflect actual host observations:
+Release moves the owned lease into a retained directory, then publishes a
+complete receipt without overwriting an existing receipt. If receipt I/O fails
+after the move, retry with the same owner and quiescence proof; recovery checks
+the retained owner and only finishes that token's receipt. Replaying an old
+release cannot remove a new owner's lock. These operations do not guarantee
+power-loss durability. Keep receipts; retention is a separate policy.
+Controller statements must reflect actual host observations:
 valid JSON or a task-authored summary does not prove quiescence.
 
 For a stopped controller, `status CHECKOUT` exposes its exact owner. A recovery

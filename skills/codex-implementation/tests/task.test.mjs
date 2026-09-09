@@ -292,6 +292,36 @@ test("a recorded worker that has exited can be reconciled with host terminal evi
   assert.equal(inspectLock(f.repo).status,"free");
 });
 
+for (const complete of [false, true]) {
+  test(`${complete ? "completion" : "settlement"} cannot omit a known worker`, t => {
+    const f = fixture(t); launch(f.input, f.attempt);
+    f.change(value => { value.jobs["job-1"].pid = process.pid; });
+    f.finish(); operate("result", f.attempt);
+    for (const processIds of [undefined, []]) {
+      assert.throws(() => assess(f.attempt, { ...f.assessment(), processIds }, complete), /known worker/);
+      assert.equal(read(path.join(f.attempt, "state.json")).settled, false);
+      assert.equal(inspectLock(f.repo).status, "held");
+    }
+    assert.throws(() => assess(f.attempt, { ...f.assessment(), processIds: [process.pid] }, complete), /still alive/);
+    assert.equal(inspectLock(f.repo).status, "held");
+  });
+}
+
+test("completion retains every verified PID in its assessment and release receipt", t => {
+  const f = fixture(t); launch(f.input, f.attempt);
+  const processIds = [0, 1].map(() => Number(execFileSync(process.execPath,
+    ["-e", "console.log(process.pid)"], { encoding: "utf8" }).trim()));
+  f.change(value => { value.jobs["job-1"].pid = processIds[0]; });
+  f.finish(); operate("result", f.attempt);
+  assert.throws(() => assess(f.attempt, { ...f.assessment(), processIds: [processIds[1]] }, true), /known worker/);
+  const lease = inspectLock(f.repo);
+  const accepted = assess(f.attempt, { ...f.assessment(), processIds }, true);
+  assert.equal(accepted.complete, true);
+  assert.equal(accepted.leaseReleased, true);
+  assert.deepEqual(read(path.join(f.attempt, "assessment.json")).processIds, processIds);
+  assert.deepEqual(read(path.join(lease.released, lease.owner.token, "release.json")).proof.processIds, processIds);
+});
+
 test("new lifecycle evidence revokes a recovered settlement", t => {
   const f=fixture(t);launch(f.input,f.attempt);operate("cancel",f.attempt);
   reconcile(f.attempt,recoveryProof(f));
@@ -313,6 +343,24 @@ test("a failed lease release can be retried without inventing a new recovery", t
   mocked.mock.restore();
   assert.equal(reconcile(f.attempt,proof).leaseReleased,true);
   assert.equal(inspectLock(f.repo).status,"free");
+});
+
+test("recovery retries a missing release receipt after ownership has moved", t => {
+  const f = fixture(t); launch(f.input, f.attempt); operate("cancel", f.attempt);
+  const proof = recoveryProof(f), original = fs.writeFileSync;
+  const mocked = t.mock.method(fs, "writeFileSync", (file, ...args) => {
+    if (/^release(?:\..+)?\.json$/.test(path.basename(String(file)))) {
+      throw Object.assign(new Error("fixture ENOSPC writing release receipt"), { code: "ENOSPC" });
+    }
+    return original(file, ...args);
+  });
+  assert.throws(() => reconcile(f.attempt, proof), /fixture ENOSPC/);
+  assert.equal(read(path.join(f.attempt, "state.json")).settled, true);
+  assert.equal(read(path.join(f.attempt, "state.json")).leaseReleased, false);
+  assert.equal(inspectLock(f.repo).status, "free");
+  mocked.mock.restore();
+  assert.equal(reconcile(f.attempt, proof).leaseReleased, true);
+  assert.equal(reconcile(f.attempt, proof).leaseReleased, true);
 });
 
 test("assessment scaffolding binds current IDs and never supplies a PASS", t => {
