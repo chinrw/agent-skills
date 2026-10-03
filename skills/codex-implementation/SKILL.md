@@ -1,6 +1,7 @@
 ---
 name: codex-implementation
-description: Delegate bounded investigation or implementation to Codex while Claude owns scope and independent acceptance. Use for non-trivial features, fixes, refactors, tests, configuration, or build changes that benefit from a separate Codex task.
+description: Delegate bounded investigation or implementation to Codex while Claude owns scope and independent acceptance. Suited to non-trivial features, fixes, refactors, tests, configuration, or build changes that benefit from a separate Codex task. Explicit invocation only.
+disable-model-invocation: true
 ---
 
 # Codex implementation workflow
