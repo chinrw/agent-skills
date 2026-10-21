@@ -2,6 +2,17 @@
 
 Version-controlled agent skills and a local PR automation runner.
 
+## aster-debug
+
+[`aster-debug`](codex-skills/aster-debug/SKILL.md) analyzes Asterinas bug reports
+and Specula results, prepares fixes and regression tests, and packages a handoff
+for another agent to run the reproducer. Runtime validation remains pending
+until the receiving agent returns evidence.
+
+The skill includes its reference material, artifact collector, matrix runner,
+and fixture tests. This checkout contains the source; Home Manager does not
+install it yet.
+
 ## context-bundle
 
 [`codex-skills/context-bundle/SKILL.md`](codex-skills/context-bundle/SKILL.md)
