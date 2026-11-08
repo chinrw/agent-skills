@@ -1,6 +1,56 @@
 # agent-skills
 
-Version-controlled agent skills and a local PR automation runner.
+Install this repository's shared and native agent skills with Home Manager,
+or link the Claude Code skills from a local checkout. The repository also
+contains a separate PR automation runner; installing skills does not start it.
+
+## Home Manager
+
+Add the flake as an input, import its module, and enable it:
+
+```nix
+inputs.agent-skills.url = "github:chinrw/agent-skills";
+
+# In a Home Manager module with access to inputs:
+imports = [ inputs.agent-skills.homeManagerModules.default ];
+programs.agent-skills.enable = true;
+```
+
+The module discovers skills automatically. Adding a directory containing
+`SKILL.md` to one of these groups requires no consumer-side path change:
+
+| Source | Installed entrypoints |
+| --- | --- |
+| `shared-skills/` | `~/.agents/skills/`, plus `~/.claude/skills/` when Claude Code is selected |
+| `skills/` | `~/.claude/skills/` |
+| `codex-skills/` | `~/.codex/skills/` |
+
+Codex and pi discover the shared Agent Skills location. Native Codex skills
+stay out of that shared directory. `lib.skills` exposes the same catalog for
+consumers that need to inspect it. Source links retain the entire flake snapshot,
+so the Claude babysit entrypoint can resolve its sibling resources.
+
+All three tools are selected by default. To choose tools or omit a skill:
+
+```nix
+programs.agent-skills = {
+  enable = true;
+  tools = [ "claude-code" "codex" "pi" ];
+  exclude = [ "codex-implementation" ];
+};
+```
+
+Activation backs up pre-existing files, directories and foreign symlinks under
+`$XDG_STATE_HOME/agent-skills/backups/` before linking. Its manifest removes
+only unchanged links that it previously installed; user-replaced paths remain.
+Disabling the module or excluding a skill removes those owned links on the next
+activation. Dry activation does not create backups, links or state files.
+Updating a deployed snapshot requires a commit, push, consumer input update,
+and Home Manager activation. Repository edits alone do not change installed skills.
+
+Without Nix, `./install.sh` installs the Claude and shared skills from this
+checkout. `--check` reports link state; `--unlink` removes the enumerated links.
+The Codex-native directory and runner remain separate installations.
 
 ## aster-debug
 
@@ -10,22 +60,22 @@ for another agent to run the reproducer. Runtime validation remains pending
 until the receiving agent returns evidence.
 
 The skill includes its reference material, artifact collector, matrix runner,
-and fixture tests. This checkout contains the source; Home Manager does not
-install it yet.
+and fixture tests. The Home Manager module installs its Codex entrypoint.
 
 ## context-bundle
 
-[`codex-skills/context-bundle/SKILL.md`](codex-skills/context-bundle/SKILL.md)
+[`shared-skills/context-bundle/SKILL.md`](shared-skills/context-bundle/SKILL.md)
 packages the current task for another agent as one ZIP. It includes the needed
 non-public material and a single `HANDOFF.md` with task state, next actions,
 source provenance, public references, and explicit gaps. A Python standard-library
 helper adds a SHA-256 manifest and verifies the archived bytes.
 
 Example request: `Use $context-bundle to package this conversation for another agent.`
-This checkout contains the skill source; `install.sh` does not install it.
+The module and `install.sh` install this shared skill.
+`codex-skills/context-bundle` remains a compatibility link for existing callers.
 
 ```bash
-python3 -m unittest discover -s codex-skills/context-bundle/tests -v
+python3 -m unittest discover -s shared-skills/context-bundle/tests -v
 ```
 
 ## Native PR babysitting
@@ -69,14 +119,9 @@ and older installed entrypoints require their own migration/coordination checks.
 
 ### Install and verify
 
-Home Manager consumes `codex-skills/babysit-prs-codex` through shell-config's
-`agent-skills` flake input and links it at `~/.agents/skills/babysit-prs-codex`.
-Updating the deployed copy requires commit, push, a flake-input update, and a
-Home Manager switch. Repository edits alone do not change that snapshot.
-The Claude entrypoint can be linked from `skills/babysit-prs` by `./install.sh`
-or Home Manager. Nix links must resolve resources inside the same repository
-snapshot. The runner service and old Claude links require separate migration checks;
-see the [runner installation notes](runners/babysit-auto/README.md#install).
+The Home Manager module installs both native entrypoints from the same source
+snapshot. The runner service and old manually installed links remain separate
+deployment surfaces; see the [runner installation notes](runners/babysit-auto/README.md#install).
 
 For a portable directory without a sibling checkout or installed skill, export
 to a new path outside this repository. The exporter materializes resource links:
@@ -90,7 +135,7 @@ Install the resulting directory under the corresponding host's skills directory.
 Copying only the Claude source directory without dereferencing its resource
 links is not a standalone installation.
 
-Run fixtures from this checkout:
+Run fixtures with Node, Python and Bash available:
 
 ```bash
 bash scripts/check-all.sh
@@ -130,9 +175,3 @@ settings and live task termination still require observations from the host.
 `assessment-template` supplies IDs and the snapshot with every judgment left
 NOT RUN. `export-handoff` copies selected task records with a byte manifest;
 the final context bundle still owns the sole `HANDOFF.md` and source accounting.
-
-`./install.sh` links `skills/` entries into `~/.claude/skills`;
-it does not install `codex-skills/`. `--check` reports link state and `--unlink`
-removes links for entries still present in this checkout. Retired custom agent
-links are not enumerated by either option. Existing real files are backed up
-before linking.

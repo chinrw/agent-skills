@@ -13,7 +13,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 MODE="${1:-link}"
 
-skill_dirs() { find "$REPO/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null; }
+skill_dirs() { find "$REPO/skills" "$REPO/shared-skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null; }
 agent_files() { find "$REPO/agents" -mindepth 1 -maxdepth 1 -name '*.md' 2>/dev/null; }
 
 status_of() {

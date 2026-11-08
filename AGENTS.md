@@ -17,8 +17,14 @@ Helpers use Node ES modules, Python's standard library, Bash, and systemd.
   attempt lock. Corrections start fresh only after source-bound settlement.
 - Updated native, timer, and companion controllers share one Git-common-dir
   lease. No age-based takeover; terminal evidence is required for release.
-- `codex-skills/context-bundle/` packages portable handoffs. Its helper checks
+- `shared-skills/context-bundle/` packages portable handoffs. Its helper checks
   bytes; the controller checks source completeness and ongoing task state.
+- `nix/catalog.nix` discovers skill directories. Shared skills belong under
+  `shared-skills/`; `skills/` and `codex-skills/` hold native entrypoints.
+  The old context-bundle path is a compatibility symlink, not another copy.
+- `nix/home-manager.nix` installs links. Its manifest owns stale-link cleanup;
+  existing unrelated files are backed up before adoption. Keep resource links
+  inside one source snapshot and dry activation free of filesystem writes.
 
 Run checks from the repository root:
 
