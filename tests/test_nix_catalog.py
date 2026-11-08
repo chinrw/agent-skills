@@ -28,7 +28,7 @@ class CatalogTest(unittest.TestCase):
 
     def test_shared_and_native_entrypoints_keep_their_source_snapshot(self):
         catalog = self.catalog(ROOT)
-        self.assertEqual(set(catalog["shared"]), {"context-bundle"})
+        self.assertEqual(set(catalog["shared"]), {"context-bundle", "fable-writing"})
         self.assertEqual(
             set(catalog["claude-code"]), {"babysit-prs", "codex-implementation"}
         )

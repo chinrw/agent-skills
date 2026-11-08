@@ -52,6 +52,14 @@ Without Nix, `./install.sh` installs the Claude and shared skills from this
 checkout. `--check` reports link state; `--unlink` removes the enumerated links.
 The Codex-native directory and runner remain separate installations.
 
+## fable-writing
+
+[`fable-writing`](shared-skills/fable-writing/SKILL.md) explains a supplied
+concept through an original Chinese fable, followed by a concept explanation
+and two understanding checks. Invoke it explicitly with a concept; automatic
+invocation stays disabled in Claude Code and Codex. Its writing rules are shared
+by the installed entrypoints.
+
 ## aster-debug
 
 [`aster-debug`](codex-skills/aster-debug/SKILL.md) analyzes Asterinas bug reports
