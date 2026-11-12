@@ -60,6 +60,16 @@ contains the full writing guide, including its examples, and preserves facts,
 stance and uncertainty when revising text. It supports automatic selection and
 explicit invocation.
 
+## pi-headless
+
+[`pi-headless`](shared-skills/pi-headless/SKILL.md) invokes pi directly for
+headless tasks from another agent or a script. Callers can choose a provider,
+model, and reasoning effort, retain an exact session for follow-up work, and
+collect JSON progress and verification evidence. Conversation-dependent tasks
+receive a `HANDOFF.md` with decisions, constraints, sources, and acceptance
+criteria; portable transfers use `context-bundle`. The skill covers one-shot
+execution and points to RPC when a task needs live steering.
+
 ## fable-writing
 
 [`fable-writing`](shared-skills/fable-writing/SKILL.md) explains a supplied

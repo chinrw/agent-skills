@@ -30,7 +30,7 @@ class CatalogTest(unittest.TestCase):
         catalog = self.catalog(ROOT)
         self.assertEqual(
             set(catalog["shared"]),
-            {"chinese-writing", "context-bundle", "fable-writing"},
+            {"chinese-writing", "context-bundle", "fable-writing", "pi-headless"},
         )
         self.assertEqual(
             set(catalog["claude-code"]), {"babysit-prs", "codex-implementation"}
