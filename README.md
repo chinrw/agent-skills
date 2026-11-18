@@ -55,10 +55,9 @@ The Codex-native directory and runner remain separate installations.
 ## chinese-writing
 
 [`chinese-writing`](shared-skills/chinese-writing/SKILL.md) writes and revises
-Chinese prose with complete reasoning and natural transitions. The skill
-contains the full writing guide, including its examples, and preserves facts,
-stance and uncertainty when revising text. It supports automatic selection and
-explicit invocation.
+standalone Chinese articles and formal reports. It applies the writing guide
+to make reasoning and transitions clear while preserving the author’s facts,
+stance and uncertainty. It also supports explicit invocation for other text.
 
 ## pi-headless
 
