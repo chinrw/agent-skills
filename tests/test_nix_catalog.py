@@ -32,6 +32,7 @@ class CatalogTest(unittest.TestCase):
             set(catalog["shared"]),
             {
                 "chinese-writing",
+                "codex-delegate",
                 "context-bundle",
                 "delegate-tasks",
                 "fable-writing",
